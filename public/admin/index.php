@@ -11,6 +11,8 @@ $auth->startSession($config['app']['session_name']);
 $auth->requireLogin();
 
 $symbol = htmlspecialchars($config['bybit']['symbol'], ENT_QUOTES, 'UTF-8');
+$category = htmlspecialchars((string) $config['bybit']['category'], ENT_QUOTES, 'UTF-8');
+$marketLabel = $category === 'linear' ? 'USDT Perpetual' : $category;
 $intervals = Intervals::chartMap();
 ?>
 <!doctype html>
@@ -41,7 +43,11 @@ $intervals = Intervals::chartMap();
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
         <div>
             <h1 class="h3 mb-1">Dashboard</h1>
-            <p class="text-secondary mb-0">Последние 100 свечей <?= $symbol ?> по таймфреймам</p>
+            <p class="text-secondary mb-0">
+                Котировки
+                <a class="link-light" href="https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT" target="_blank" rel="noopener noreferrer"><?= $symbol ?> · <?= $marketLabel ?></a>
+                — последние 100 свечей по таймфреймам
+            </p>
         </div>
         <div class="d-flex gap-2 align-items-center">
             <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
@@ -53,7 +59,7 @@ $intervals = Intervals::chartMap();
         <div class="col-md-4">
             <div class="card bg-black border-secondary h-100">
                 <div class="card-body">
-                    <small class="text-secondary"><?= $symbol ?></small>
+                    <small class="text-secondary"><?= $symbol ?> · <?= $marketLabel ?></small>
                     <h2 class="mb-0" id="last-price">—</h2>
                 </div>
             </div>

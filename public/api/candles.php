@@ -41,6 +41,9 @@ $buildSeries = static function (array $rows): array {
 if ($requested === 'all') {
     $payload = [
         'symbol' => $symbol,
+        'category' => $config['bybit']['category'],
+        'market' => 'USDT Perpetual',
+        'source' => 'https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT',
         'limit' => $limit,
         'intervals' => [],
     ];
@@ -65,6 +68,9 @@ $label = array_search($code, $intervals, true) ?: $code;
 
 echo json_encode([
     'symbol' => $symbol,
+    'category' => $config['bybit']['category'],
+    'market' => 'USDT Perpetual',
+    'source' => 'https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT',
     'label' => $label,
     'code' => $code,
     'limit' => $limit,

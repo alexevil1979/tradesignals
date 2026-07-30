@@ -16,9 +16,12 @@ return [
         'password' => 'CHANGE_THIS_DATABASE_PASSWORD',
     ],
     'bybit' => [
+        // Только USDT Perpetual: https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT
         'api_key' => 'CHANGE_THIS_BYBIT_KEY',
         'api_secret' => 'CHANGE_THIS_BYBIT_SECRET',
         'testnet' => true,
+        'category' => 'linear',
+        'symbol' => 'BTCUSDT',
     ],
     'telegram' => [
         'token' => 'CHANGE_THIS_TELEGRAM_TOKEN',

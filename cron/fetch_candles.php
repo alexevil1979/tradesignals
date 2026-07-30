@@ -9,8 +9,16 @@ require dirname(__DIR__) . '/bootstrap.php';
 
 try {
     $bybitConfig = $config['bybit'] + ['max_retries' => $config['trading']['max_api_retries']];
-    $service = new KlineService(new Client($bybitConfig, $logger), $pdo);
+    $service = new KlineService(
+        new Client($bybitConfig, $logger),
+        $pdo,
+        (string) $bybitConfig['category'],
+    );
     $total = 0;
+
+    if (($bybitConfig['category'] ?? '') !== 'linear' || ($bybitConfig['symbol'] ?? '') !== 'BTCUSDT') {
+        throw new RuntimeException('Ожидается инструмент BTCUSDT USDT Perpetual (category=linear).');
+    }
 
     foreach (Intervals::codes() as $interval) {
         $candles = $service->fetch($bybitConfig['symbol'], $interval, 100);

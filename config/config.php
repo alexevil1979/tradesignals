@@ -22,11 +22,12 @@ $config = [
         'charset' => 'utf8mb4',
     ],
     'bybit' => [
+        // USDT Perpetual BTCUSDT: https://www.bybit.com/trade/usdt/BTCUSDT
         'api_key' => getenv('BYBIT_API_KEY') ?: '',
         'api_secret' => getenv('BYBIT_API_SECRET') ?: '',
         'testnet' => filter_var(getenv('BYBIT_TESTNET') ?: true, FILTER_VALIDATE_BOOL),
-        'category' => 'linear',
-        'symbol' => 'BTCUSDT',
+        'category' => getenv('BYBIT_CATEGORY') ?: 'linear',
+        'symbol' => getenv('BYBIT_SYMBOL') ?: 'BTCUSDT',
         'recv_window' => 5000,
         'timeout' => 15,
     ],

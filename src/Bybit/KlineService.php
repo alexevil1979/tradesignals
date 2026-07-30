@@ -12,6 +12,7 @@ final class KlineService
     public function __construct(
         private readonly Client $client,
         private readonly PDO $pdo,
+        private readonly string $category = 'linear',
     ) {
     }
 
@@ -19,7 +20,7 @@ final class KlineService
     public function fetch(string $symbol, string $interval, int $limit = 200): array
     {
         $response = $this->client->publicGet('/v5/market/kline', [
-            'category' => 'linear',
+            'category' => $this->category,
             'symbol' => $symbol,
             'interval' => $interval,
             'limit' => $limit,

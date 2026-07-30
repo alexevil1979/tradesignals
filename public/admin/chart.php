@@ -16,6 +16,8 @@ if (!isset($intervals[$active])) {
     $active = 'M15';
 }
 $symbol = htmlspecialchars($config['bybit']['symbol'], ENT_QUOTES, 'UTF-8');
+$category = htmlspecialchars((string) $config['bybit']['category'], ENT_QUOTES, 'UTF-8');
+$marketLabel = $category === 'linear' ? 'USDT Perpetual' : $category;
 ?>
 <!doctype html>
 <html lang="ru" data-bs-theme="dark">
@@ -44,8 +46,11 @@ $symbol = htmlspecialchars($config['bybit']['symbol'], ENT_QUOTES, 'UTF-8');
 <main class="container-fluid px-4 pb-5">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <div>
-            <h1 class="h3 mb-1">График <?= $symbol ?></h1>
-            <p class="text-secondary mb-0">Последние 100 баров выбранного таймфрейма</p>
+            <h1 class="h3 mb-1">
+                График
+                <a class="link-light" href="https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT" target="_blank" rel="noopener noreferrer"><?= $symbol ?></a>
+            </h1>
+            <p class="text-secondary mb-0"><?= $marketLabel ?> · последние 100 баров выбранного таймфрейма</p>
         </div>
         <div class="btn-group" role="group" aria-label="Таймфреймы">
             <?php foreach ($intervals as $label => $code): ?>
