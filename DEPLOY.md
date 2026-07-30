@@ -248,7 +248,36 @@ namei -l /ssd/www/tradesignals/public/admin/index.php
 grep -R "listen\|open_basedir\|user\|group\|chdir" /usr/local/php82/etc/php-fpm.d/ 2>/dev/null | head -n 50
 ```
 
-Если `DocumentRoot` указывает не на `/ssd/www/tradesignals/public`, исправьте его.
+Важно: если в браузере открыт `http://td.1tlt.ru/...` (без HTTPS), используется HTTP-vhost, а не только `td.1tlt.ru-le-ssl.conf`. Проверьте оба файла:
+
+```bash
+ls -la /etc/apache2/sites-enabled/td.1tlt.ru*
+sed -n '1,80p' /etc/apache2/sites-enabled/td.1tlt.ru.conf
+sed -n '1,80p' /etc/apache2/sites-enabled/td.1tlt.ru-le-ssl.conf
+```
+
+Если `SetHandler` всё ещё даёт `No input file specified` даже для `/phpver.php`, замените handler на явный `ProxyPassMatch` с полным путём к файлу (часто надёжнее на custom PHP-FPM):
+
+```apache
+DocumentRoot /ssd/www/tradesignals/public
+DirectoryIndex index.php
+
+<Directory /ssd/www/tradesignals/public>
+    Options -Indexes +FollowSymLinks
+    AllowOverride None
+    Require all granted
+</Directory>
+
+ProxyPassMatch ^/(.*\.php(/.*)?)$ fcgi://127.0.0.1:9072/ssd/www/tradesignals/public/$1
+```
+
+Удалите блок `<FilesMatch>...</FilesMatch>` / `SetHandler`, чтобы не было двойной обработки. Примените и в HTTP, и в HTTPS vhost:
+
+```bash
+apachectl configtest
+systemctl reload apache2
+# проверяйте именно https://td.1tlt.ru/phpver.php
+```
 
 ## 5. SSL Let's Encrypt
 
