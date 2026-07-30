@@ -10,7 +10,7 @@
 
 ```bash
 sudo apt update
-sudo apt install -y apache2 git composer libapache2-mod-php8.2 php8.2-cli php8.2-curl php8.2-mysql php8.2-mbstring unzip \
+sudo apt install -y apache2 git composer php-cli php-curl php-mysql php-mbstring libapache2-mod-php unzip \
   certbot python3-certbot-apache mysql-client
 sudo a2enmod rewrite headers ssl
 ```
@@ -18,11 +18,12 @@ sudo a2enmod rewrite headers ssl
 Проверьте версии:
 
 ```bash
-/usr/bin/php8.2 -v
+PHP_BIN="$(command -v php8.2 || command -v php)"
+test -n "$PHP_BIN" && "$PHP_BIN" -v
 mysql --version
 ```
 
-MySQL нужен версии не ниже 5.7.8, поскольку схема использует тип `JSON`. В MySQL 5.7 конструкции `CHECK` принимаются, но сервер их не применяет: корректность параметров стратегий проверяется приложением.
+`PHP_BIN` должен показывать PHP не ниже 8.2. Если команда не найдена или версия ниже, сначала установите PHP 8.2 через репозиторий, подходящий для вашей ОС. MySQL нужен версии не ниже 5.7.8, поскольку схема использует тип `JSON`. В MySQL 5.7 конструкции `CHECK` принимаются, но сервер их не применяет: корректность параметров стратегий проверяется приложением.
 
 ## 2. Создание базы
 
@@ -58,7 +59,8 @@ chown "$USER":www-data config/local.php
 Создайте администратора:
 
 ```bash
-/usr/bin/php8.2 bin/create_admin.php admin 'ПАРОЛЬ_ДЛИНОЙ_НЕ_МЕНЕЕ_12_СИМВОЛОВ'
+PHP_BIN="$(command -v php8.2 || command -v php)"
+"$PHP_BIN" bin/create_admin.php admin 'ПАРОЛЬ_ДЛИНОЙ_НЕ_МЕНЕЕ_12_СИМВОЛОВ'
 ```
 
 ## 4. Apache
@@ -113,19 +115,24 @@ sudo mkdir -p /var/log/tradesignals
 sudo chown www-data:www-data /var/log/tradesignals
 ```
 
-Откройте crontab пользователя, от которого развёрнуто приложение (`crontab -e`), и добавьте:
+Узнайте абсолютный путь к PHP, затем подставьте его вместо `<PHP_BIN>` в crontab пользователя, от которого развёрнуто приложение:
+
+```bash
+readlink -f "$PHP_BIN"
+crontab -e
+```
 
 ```cron
-* * * * * flock -n /tmp/tradesignals-candles.lock /usr/bin/php8.2 /ssd/www/tradesignals/cron/fetch_candles.php >> /var/log/tradesignals/candles.log 2>&1
-* * * * * flock -n /tmp/tradesignals-signals.lock /usr/bin/php8.2 /ssd/www/tradesignals/cron/process_signals.php >> /var/log/tradesignals/signals.log 2>&1
+* * * * * flock -n /tmp/tradesignals-candles.lock <PHP_BIN> /ssd/www/tradesignals/cron/fetch_candles.php >> /var/log/tradesignals/candles.log 2>&1
+* * * * * flock -n /tmp/tradesignals-signals.lock <PHP_BIN> /ssd/www/tradesignals/cron/process_signals.php >> /var/log/tradesignals/signals.log 2>&1
 ```
 
 Проверьте запуск вручную:
 
 ```bash
 cd /ssd/www/tradesignals
-/usr/bin/php8.2 cron/fetch_candles.php
-/usr/bin/php8.2 cron/process_signals.php
+"$PHP_BIN" cron/fetch_candles.php
+"$PHP_BIN" cron/process_signals.php
 ```
 
 ## 7. Обновление из Git
