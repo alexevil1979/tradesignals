@@ -56,12 +56,14 @@ open_basedir=/ssd/www/tradesignals:/usr/local/bin:/tmp:/usr/local/php82:/dev/ura
 mysql -u root -p <<'SQL'
 CREATE DATABASE tradesignals CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'tradesignals'@'127.0.0.1' IDENTIFIED BY 'CHANGE_STRONG_DB_PASSWORD';
+CREATE USER 'tradesignals'@'localhost' IDENTIFIED BY 'CHANGE_STRONG_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON tradesignals.* TO 'tradesignals'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON tradesignals.* TO 'tradesignals'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 ```
 
-Если PHP подключается через `localhost`, дополнительно создайте пользователя `'tradesignals'@'localhost'` с теми же правами. Текущая конфигурация использует `127.0.0.1`.
+Создаются оба локальных пользователя, поскольку MySQL может авторизовать loopback-подключение как `localhost` даже при `host = 127.0.0.1` в PHP-конфигурации.
 
 ## 3. Клонирование приложения
 
