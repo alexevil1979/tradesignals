@@ -287,7 +287,19 @@ curl -k https://td.1tlt.ru/phpver.php
 grep -R "9072\|open_basedir\|listen" /usr/local/php82/etc/php-fpm.d/ /usr/local/php82/etc/php-fpm.conf 2>/dev/null
 ```
 
-Если в pool есть `php_admin_value[open_basedir]`, добавьте туда `/ssd/www/tradesignals` и перезапустите FPM 8.2 (не только Apache).
+```bash
+grep -R "9072\|open_basedir\|doc_root\|chdir\|listen" /usr/local/php82/etc/php-fpm.d/ /usr/local/php82/etc/php-fpm.conf 2>/dev/null
+ss -lntp | grep 9072
+```
+
+Если в pool есть `php_admin_value[open_basedir]`, добавьте `/ssd/www/tradesignals` и перезапустите именно этот master:
+
+```bash
+kill -USR2 $(pgrep -f 'php-fpm: master process \(/usr/local/php82/etc/php-fpm.conf\)')
+# или:
+systemctl restart php82-fpm
+curl -k https://td.1tlt.ru/phpver.php
+```
 ## 5. SSL Let's Encrypt
 
 ```bash
