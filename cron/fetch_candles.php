@@ -3,35 +3,41 @@ declare(strict_types=1);
 
 use App\Bybit\Client;
 use App\Bybit\KlineService;
+use App\Database\SettingsRepository;
 use App\Helpers\Intervals;
 
 require dirname(__DIR__) . '/bootstrap.php';
 
 try {
     $bybitConfig = $config['bybit'] + ['max_retries' => $config['trading']['max_api_retries']];
-    $service = new KlineService(
-        new Client($bybitConfig, $logger),
-        $pdo,
-        (string) $bybitConfig['category'],
-    );
-    $total = 0;
-
     if (($bybitConfig['category'] ?? '') !== 'linear' || ($bybitConfig['symbol'] ?? '') !== 'BTCUSDT') {
         throw new RuntimeException('Ожидается инструмент BTCUSDT USDT Perpetual (category=linear).');
     }
 
+    $settings = new SettingsRepository($pdo);
+    $service = new KlineService(
+        new Client($bybitConfig, $logger),
+        $pdo,
+        (string) $bybitConfig['category'],
+        $settings,
+    );
+    $total = 0;
+
     foreach (Intervals::codes() as $interval) {
-        $candles = $service->fetch($bybitConfig['symbol'], $interval, 100);
-        $saved = $service->save($bybitConfig['symbol'], $interval, $candles);
-        $total += $saved;
-        $logger->info('Свечи обновлены.', [
+        $result = $service->syncInterval($bybitConfig['symbol'], $interval);
+        $total += $result['saved'];
+        $status = $result['history_complete'] ? 'история полная' : 'история ещё догружается';
+        $logger->info('Свечи синхронизированы.', [
             'interval' => $interval,
-            'count' => $saved,
+            'saved' => $result['saved'],
+            'mode' => $result['mode'],
+            'pages' => $result['pages'],
+            'history_complete' => $result['history_complete'],
         ], 'cron');
-        echo "Интервал {$interval}: сохранено {$saved}\n";
+        echo "Интервал {$interval}: сохранено {$result['saved']} (режим {$result['mode']}, страниц {$result['pages']}, {$status})\n";
     }
 
-    echo "Всего свечей: {$total}\n";
+    echo "Всего сохранено/обновлено свечей: {$total}\n";
 } catch (Throwable $exception) {
     $logger->error('Не удалось обновить свечи.', ['error' => $exception->getMessage()], 'cron');
     fwrite(STDERR, $exception->getMessage() . PHP_EOL);
