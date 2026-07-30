@@ -37,6 +37,14 @@ final class KlineService
         $pages = 0;
         $mode = 'incremental';
 
+        $purged = $this->purgeInvalidCandles($symbol, $interval);
+        if ($purged > 0) {
+            $this->settings?->set($this->historyCompleteKey($interval), '0');
+            $historyComplete = false;
+            $newestMs = $this->newestOpenTimeMs($symbol, $interval);
+            $oldestMs = $this->oldestOpenTimeMs($symbol, $interval);
+        }
+
         if ($newestMs === null) {
             $mode = 'full_backfill';
             $result = $this->backfillOlder($symbol, $interval, null);
@@ -91,11 +99,56 @@ final class KlineService
                 low_price = VALUES(low_price), close_price = VALUES(close_price), volume = VALUES(volume),
                 turnover = VALUES(turnover), is_confirmed = VALUES(is_confirmed)'
         );
+
+        $saved = 0;
         foreach ($candles as $candle) {
+            if (!$this->isValidOhlc($candle)) {
+                continue;
+            }
             $statement->execute(['symbol' => $symbol, 'interval' => $interval] + $candle);
+            $saved++;
         }
 
-        return count($candles);
+        return $saved;
+    }
+
+    /** Удаляет заведомо битые OHLC (ломают шкалу графика, как выброс ~1_000_000 на D1). */
+    public function purgeInvalidCandles(string $symbol, string $interval): int
+    {
+        $statement = $this->pdo->prepare(
+            'DELETE FROM candles
+             WHERE symbol = :symbol
+               AND interval_code = :interval
+               AND (
+                    open_price <= 0 OR high_price <= 0 OR low_price <= 0 OR close_price <= 0
+                    OR high_price < open_price OR high_price < close_price OR high_price < low_price
+                    OR low_price > open_price OR low_price > close_price
+                    OR open_price < 1000 OR close_price < 1000
+                    OR open_price > 500000 OR high_price > 500000 OR low_price > 500000 OR close_price > 500000
+               )'
+        );
+        $statement->execute(['symbol' => $symbol, 'interval' => $interval]);
+
+        return $statement->rowCount();
+    }
+
+    /** @param array<string, mixed> $candle */
+    private function isValidOhlc(array $candle): bool
+    {
+        $open = (float) $candle['open'];
+        $high = (float) $candle['high'];
+        $low = (float) $candle['low'];
+        $close = (float) $candle['close'];
+
+        if (min($open, $high, $low, $close) < 1000.0 || max($open, $high, $low, $close) > 500000.0) {
+            return false;
+        }
+
+        return $high >= $open
+            && $high >= $close
+            && $high >= $low
+            && $low <= $open
+            && $low <= $close;
     }
 
     /**

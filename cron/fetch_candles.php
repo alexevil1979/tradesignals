@@ -27,14 +27,16 @@ try {
         $result = $service->syncInterval($bybitConfig['symbol'], $interval);
         $total += $result['saved'];
         $status = $result['history_complete'] ? 'история полная' : 'история ещё догружается';
+        $network = !empty($bybitConfig['testnet']) ? 'TESTNET' : 'MAINNET';
         $logger->info('Свечи синхронизированы.', [
             'interval' => $interval,
             'saved' => $result['saved'],
             'mode' => $result['mode'],
             'pages' => $result['pages'],
             'history_complete' => $result['history_complete'],
+            'network' => $network,
         ], 'cron');
-        echo "Интервал {$interval}: сохранено {$result['saved']} (режим {$result['mode']}, страниц {$result['pages']}, {$status})\n";
+        echo "[{$network}] Интервал {$interval}: сохранено {$result['saved']} (режим {$result['mode']}, страниц {$result['pages']}, {$status})\n";
     }
 
     echo "Всего сохранено/обновлено свечей: {$total}\n";

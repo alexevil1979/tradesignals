@@ -50,6 +50,11 @@ $intervals = Intervals::chartMap();
             </p>
         </div>
         <div class="d-flex gap-2 align-items-center">
+            <?php if (!empty($config['bybit']['testnet'])): ?>
+                <span class="badge text-bg-warning" title="Котировки с api-testnet.bybit.com — они не совпадают с bybit.com">TESTNET</span>
+            <?php else: ?>
+                <span class="badge text-bg-success">MAINNET</span>
+            <?php endif; ?>
             <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
             <button type="button" class="btn btn-outline-light btn-sm" id="refresh-charts">Обновить</button>
         </div>
