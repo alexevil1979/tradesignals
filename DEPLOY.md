@@ -183,7 +183,47 @@ sudo apachectl configtest
 sudo systemctl reload apache2
 ```
 
-После смены handler снова откройте `phpver.php`: версия должна начинаться с `8.2`.## 5. SSL Let's Encrypt
+После смены handler снова откройте `phpver.php`: версия должна начинаться с `8.2`.
+
+Если браузер показывает `No input file specified`, PHP-FPM доступен, но Apache не передаёт путь к скрипту. Сверьте vhost с рабочим `testtelega` и добавьте явный `SCRIPT_FILENAME`:
+
+```bash
+sed -n '1,80p' /etc/apache2/sites-enabled/td.1tlt.ru-le-ssl.conf
+grep -n "DocumentRoot\|DirectoryIndex\|FilesMatch\|SetHandler\|ProxyFCGI" /etc/apache2/sites-enabled/testtelega.conf
+ls -la /ssd/www/tradesignals/public/admin/index.php
+```
+
+В SSL-vhost внутри `<VirtualHost>` должно быть:
+
+```apache
+DocumentRoot /ssd/www/tradesignals/public
+DirectoryIndex index.php
+
+<Directory /ssd/www/tradesignals/public>
+    Options -Indexes +FollowSymLinks
+    AllowOverride None
+    Require all granted
+</Directory>
+
+<FilesMatch \.php$>
+    SetHandler "proxy:fcgi://127.0.0.1:9072"
+</FilesMatch>
+ProxyFCGISetEnvIf "true" SCRIPT_FILENAME "%{reqenv:DOCUMENT_ROOT}%{reqenv:SCRIPT_NAME}"
+```
+
+Затем:
+
+```bash
+apachectl configtest
+systemctl reload apache2
+echo '<?php echo PHP_VERSION, " ", __FILE__;' > /ssd/www/tradesignals/public/phpver.php
+# https://td.1tlt.ru/phpver.php и https://td.1tlt.ru/admin/
+rm -f /ssd/www/tradesignals/public/phpver.php
+```
+
+Если `DocumentRoot` указывает не на `/ssd/www/tradesignals/public`, исправьте его.
+
+## 5. SSL Let's Encrypt
 
 ```bash
 sudo certbot --apache -d td.1tlt.ru --redirect --agree-tos -m YOUR_EMAIL@example.com
