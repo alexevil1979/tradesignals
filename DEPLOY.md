@@ -292,11 +292,13 @@ grep -R "9072\|open_basedir\|doc_root\|chdir\|listen" /usr/local/php82/etc/php-f
 ss -lntp | grep 9072
 ```
 
-Если в pool есть `php_admin_value[open_basedir]`, добавьте `/ssd/www/tradesignals` и перезапустите именно этот master:
+На этом VPS ограничение задано в pool:
+
+`/usr/local/php82/etc/php-fpm.d/www.conf` → `php_admin_value[open_basedir]`
+
+Добавьте `/ssd/www/tradesignals` в этот список (не удаляя существующие пути), затем:
 
 ```bash
-kill -USR2 $(pgrep -f 'php-fpm: master process \(/usr/local/php82/etc/php-fpm.conf\)')
-# или:
 systemctl restart php82-fpm
 curl -k https://td.1tlt.ru/phpver.php
 ```
