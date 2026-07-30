@@ -26,6 +26,28 @@ mysql --version
 
 `PHP_BIN` должен показывать PHP не ниже 8.2, а вывод модулей — `curl`, `mbstring`, `mysqli` и `pdo_mysql`. MySQL нужен версии не ниже 5.7.8, поскольку схема использует тип `JSON`. В MySQL 5.7 конструкции `CHECK` принимаются, но сервер их не применяет: корректность параметров стратегий проверяется приложением.
 
+### `open_basedir` для custom PHP
+
+На VPS custom PHP может ограничивать доступ к каталогам через `open_basedir`. Путь `/ssd/www/tradesignals` обязан быть в списке разрешённых, иначе CLI не сможет подключить даже `bootstrap.php`.
+
+```bash
+PHP_BIN=/usr/local/php82/bin/php
+"$PHP_BIN" --ini
+"$PHP_BIN" -i | grep open_basedir
+```
+
+В загруженном `php.ini` или дополнительном `.ini` добавьте пути к новому проекту и Composer, не удаляя существующие пути:
+
+```ini
+open_basedir=/ssd/www/tradesignals:/usr/local/bin:/tmp:/usr/local/php82:/dev/urandom
+```
+
+Если на сервере уже перечислены другие сайты, сохраните их в значении через `:`. После изменения повторно проверьте:
+
+```bash
+"$PHP_BIN" -i | grep open_basedir
+```
+
 ## 2. Создание базы
 
 Замените сильный пароль и сохраните его для `config/local.php`:
