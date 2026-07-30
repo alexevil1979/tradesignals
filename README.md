@@ -53,7 +53,7 @@ docker compose exec app php cron/process_signals.php
    ```
 3. Создайте базу и таблицы:
    ```bash
-   mysql -u root -p < sql/schema.sql
+   mysql -u root -p bybit_bot < sql/schema.sql
    ```
 4. Создайте администратора:
    ```bash

@@ -1,7 +1,5 @@
--- Схема MySQL 8.0+ для торгового бота Bybit.
-CREATE DATABASE IF NOT EXISTS bybit_bot
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE bybit_bot;
+-- Схема MySQL 5.7.8+ для торгового бота Bybit.
+-- База данных должна быть создана до импорта схемы.
 
 CREATE TABLE users (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
