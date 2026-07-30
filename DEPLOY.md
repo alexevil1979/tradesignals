@@ -185,25 +185,10 @@ sudo systemctl reload apache2
 
 После смены handler снова откройте `phpver.php`: версия должна начинаться с `8.2`.
 
-Если браузер показывает `No input file specified`, PHP-FPM доступен, но Apache не передаёт путь к скрипту. Сверьте vhost с рабочим `testtelega` и добавьте явный `SCRIPT_FILENAME`:
-
-```bash
-sed -n '1,80p' /etc/apache2/sites-enabled/td.1tlt.ru-le-ssl.conf
-grep -n "DocumentRoot\|DirectoryIndex\|FilesMatch\|SetHandler\|ProxyFCGI" /etc/apache2/sites-enabled/testtelega.conf
-ls -la /ssd/www/tradesignals/public/admin/index.php
-```
-
-В SSL-vhost внутри `<VirtualHost>` должно быть:
+Если браузер показывает `No input file specified` при уже верном `DocumentRoot` и порте `9072`, добавьте в SSL-vhost:
 
 ```apache
-DocumentRoot /ssd/www/tradesignals/public
 DirectoryIndex index.php
-
-<Directory /ssd/www/tradesignals/public>
-    Options -Indexes +FollowSymLinks
-    AllowOverride None
-    Require all granted
-</Directory>
 
 <FilesMatch \.php$>
     SetHandler "proxy:fcgi://127.0.0.1:9072"
@@ -211,14 +196,56 @@ DirectoryIndex index.php
 ProxyFCGISetEnvIf "true" SCRIPT_FILENAME "%{reqenv:DOCUMENT_ROOT}%{reqenv:SCRIPT_NAME}"
 ```
 
-Затем:
+Быстрая правка на сервере:
 
 ```bash
+python3 - <<'PY'
+from pathlib import Path
+path = Path('/etc/apache2/sites-enabled/td.1tlt.ru-le-ssl.conf')
+text = path.read_text()
+needle = '''    <Directory /ssd/www/tradesignals/public>
+        Options -Indexes +FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+
+     <FilesMatch "\\.php$">
+                        SetHandler "proxy:fcgi://127.0.0.1:9072"
+                    </FilesMatch>'''
+replacement = '''    DirectoryIndex index.php
+
+    <Directory /ssd/www/tradesignals/public>
+        Options -Indexes +FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    <FilesMatch \\.php$>
+        SetHandler "proxy:fcgi://127.0.0.1:9072"
+    </FilesMatch>
+    ProxyFCGISetEnvIf "true" SCRIPT_FILENAME "%{reqenv:DOCUMENT_ROOT}%{reqenv:SCRIPT_NAME}"'''
+if needle not in text:
+    raise SystemExit('block not found; edit file manually')
+path.write_text(text.replace(needle, replacement, 1))
+print('updated')
+PY
 apachectl configtest
 systemctl reload apache2
 echo '<?php echo PHP_VERSION, " ", __FILE__;' > /ssd/www/tradesignals/public/phpver.php
-# https://td.1tlt.ru/phpver.php и https://td.1tlt.ru/admin/
-rm -f /ssd/www/tradesignals/public/phpver.php
+chown -R www-data:www-data /ssd/www/tradesignals/public
+find /ssd/www/tradesignals -type d -exec chmod 755 {} \;
+find /ssd/www/tradesignals -type f -exec chmod 644 {} \;
+chmod 640 /ssd/www/tradesignals/config/local.php
+# проверьте https://td.1tlt.ru/phpver.php и https://td.1tlt.ru/admin/index.php
+```
+
+Если всё ещё пусто, сравните pool FPM с `testtelega` и правами файлов:
+
+```bash
+ls -la /ssd/www/tradesignals/public/admin/index.php
+namei -l /ssd/www/tradesignals/public/admin/index.php
+grep -R "listen\|open_basedir\|user\|group\|chdir" /usr/local/php82/etc/php-fpm.d/ 2>/dev/null | head -n 50
 ```
 
 Если `DocumentRoot` указывает не на `/ssd/www/tradesignals/public`, исправьте его.
