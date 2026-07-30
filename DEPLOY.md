@@ -72,12 +72,17 @@ sudo chown -R "$USER":www-data /ssd/www/tradesignals
 cd /ssd/www/tradesignals
 PHP_BIN=/usr/local/php82/bin/php
 COMPOSER_BIN="$(command -v composer)"
+export COMPOSER_HOME=/tmp/tradesignals-composer
+export COMPOSER_ALLOW_SUPERUSER=1
+mkdir -p "$COMPOSER_HOME"
 "$PHP_BIN" "$COMPOSER_BIN" install --no-dev --optimize-autoloader
 mysql -u tradesignals -p -h 127.0.0.1 tradesignals < sql/schema.sql
 cp config/local.php.example config/local.php
 chmod 640 config/local.php
 chown "$USER":www-data config/local.php
 ```
+
+Команды выше допустимы при deploy от `root`: `COMPOSER_HOME` перенаправлен в разрешённый `/tmp`, а `COMPOSER_ALLOW_SUPERUSER=1` отключает интерактивное предупреждение. В обычной конфигурации предпочтительнее отдельный непривилегированный пользователь для деплоя.
 
 Отредактируйте `config/local.php`: задайте пароль базы, ключи Bybit и Telegram. Этот файл исключён из Git и находится выше `public/`, поэтому не отдаётся веб-сервером.
 
@@ -169,6 +174,9 @@ cd /ssd/www/tradesignals
 git pull --ff-only origin main
 PHP_BIN=/usr/local/php82/bin/php
 COMPOSER_BIN="$(command -v composer)"
+export COMPOSER_HOME=/tmp/tradesignals-composer
+export COMPOSER_ALLOW_SUPERUSER=1
+mkdir -p "$COMPOSER_HOME"
 "$PHP_BIN" "$COMPOSER_BIN" install --no-dev --optimize-autoloader
 sudo systemctl reload apache2
 ```
