@@ -108,7 +108,28 @@ PHP_BIN=/usr/local/php82/bin/php
 
 ## 4. Apache
 
-Создайте `/etc/apache2/sites-available/td.1tlt.ru.conf`:
+Сайт обязан обслуживаться тем же PHP 8.2, что и CLI (`/usr/local/php82`). Если Apache использует старый PHP, в браузере появится:
+
+`Composer detected issues in your platform: Your Composer dependencies require a PHP version ">= 8.2.0".`
+
+Проверьте версию PHP именно в веб-контексте:
+
+```bash
+ls /usr/local/php82/sbin/php-fpm /usr/local/php82/var/run/*.sock 2>/dev/null
+apachectl -M | grep -E 'proxy|php|fcgid'
+grep -R "td.1tlt.ru\|tradesignals\|php82\|SetHandler\|ProxyPassMatch\|php-fpm" /etc/apache2/sites-enabled/ /etc/apache2/conf-enabled/ 2>/dev/null
+```
+
+Создайте временный файл проверки и откройте его в браузере:
+
+```bash
+echo '<?php echo PHP_VERSION;' > /ssd/www/tradesignals/public/phpver.php
+# затем: https://td.1tlt.ru/phpver.php
+# после проверки удалите файл:
+rm /ssd/www/tradesignals/public/phpver.php
+```
+
+Создайте `/etc/apache2/sites-available/td.1tlt.ru.conf`. Пример ниже — для PHP-FPM 8.2; путь к сокету подставьте из вывода `ls` выше:
 
 ```apache
 <VirtualHost *:80>
@@ -121,20 +142,28 @@ PHP_BIN=/usr/local/php82/bin/php
         Require all granted
     </Directory>
 
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/usr/local/php82/var/run/php-fpm.sock|fcgi://localhost"
+    </FilesMatch>
+
     ErrorLog ${APACHE_LOG_DIR}/td.1tlt.ru-error.log
     CustomLog ${APACHE_LOG_DIR}/td.1tlt.ru-access.log combined
 </VirtualHost>
 ```
 
-Включите сайт и проверьте конфигурацию:
+Если на сервере уже настроен общий handler для PHP 8.2 (как у `botfabric`), скопируйте его блок `FilesMatch`/`ProxyPassMatch` в vhost `td.1tlt.ru` без изменения DocumentRoot.
+
+Включите сайт и модули proxy:
 
 ```bash
+sudo a2enmod proxy proxy_fcgi
 sudo a2dissite 000-default.conf
 sudo a2ensite td.1tlt.ru.conf
 sudo apachectl configtest
 sudo systemctl reload apache2
 ```
 
+После смены handler снова откройте `phpver.php`: версия должна начинаться с `8.2`.
 ## 5. SSL Let's Encrypt
 
 ```bash
