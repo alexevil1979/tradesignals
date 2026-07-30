@@ -344,6 +344,7 @@ cd /ssd/www/tradesignals
 /usr/local/php82/bin/php cron/process_signals.php
 ```
 
+`fetch_candles.php` сохраняет последние 100 свечей для интервалов `1`, `5`, `15`, `60`, `240`, `D`. После первого запуска графики на Dashboard и странице «График» заполнятся автоматически.
 ## 7. Обновление из Git
 
 Перед обновлением создайте дамп базы. Не используйте `git reset --hard`, чтобы не потерять `config/local.php`.

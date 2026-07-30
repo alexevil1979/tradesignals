@@ -30,4 +30,24 @@ final class CandleRepository
 
         return array_reverse($statement->fetchAll());
     }
+
+    /**
+     * @return list<array{open_time:string,open_price:string,high_price:string,low_price:string,close_price:string,volume:string}>
+     */
+    public function latestForChart(string $symbol, string $interval, int $limit = 100): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT open_time, open_price, high_price, low_price, close_price, volume
+             FROM candles
+             WHERE symbol = :symbol AND interval_code = :interval
+             ORDER BY open_time DESC
+             LIMIT :limit'
+        );
+        $statement->bindValue('symbol', $symbol);
+        $statement->bindValue('interval', $interval);
+        $statement->bindValue('limit', max(1, $limit), PDO::PARAM_INT);
+        $statement->execute();
+
+        return array_reverse($statement->fetchAll());
+    }
 }

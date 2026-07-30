@@ -1,0 +1,12 @@
+.chart-host {
+    width: 100%;
+    height: 280px;
+}
+
+.chart-host-lg {
+    height: 480px;
+}
+
+.card.bg-black {
+    background-color: #0d1117 !important;
+}

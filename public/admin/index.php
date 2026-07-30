@@ -2,32 +2,109 @@
 declare(strict_types=1);
 
 use App\Auth\AdminAuth;
+use App\Helpers\Intervals;
 
 require dirname(__DIR__, 2) . '/bootstrap.php';
+
 $auth = new AdminAuth($pdo);
 $auth->startSession($config['app']['session_name']);
 $auth->requireLogin();
+
+$symbol = htmlspecialchars($config['bybit']['symbol'], ENT_QUOTES, 'UTF-8');
+$intervals = Intervals::chartMap();
 ?>
 <!doctype html>
 <html lang="ru" data-bs-theme="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Bybit Grid Bot — Dashboard</title>
+    <title>Dashboard — Bybit Grid Bot</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/admin/assets/css/admin.css" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
-<main class="container py-5">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h3 mb-0">Bybit Grid Bot</h1>
-        <span class="badge text-bg-warning">На паузе</span>
+<nav class="navbar navbar-expand-lg navbar-dark border-bottom border-secondary mb-4">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="/admin/">Bybit Grid Bot</a>
+        <div class="navbar-nav">
+            <a class="nav-link active" href="/admin/">Dashboard</a>
+            <a class="nav-link" href="/admin/chart.php">График</a>
+            <a class="nav-link" href="/admin/strategies.php">Стратегии</a>
+            <a class="nav-link" href="/admin/orders.php">Ордера</a>
+            <a class="nav-link" href="/admin/settings.php">Настройки</a>
+            <a class="nav-link" href="/admin/logs.php">Логи</a>
+            <a class="nav-link" href="/admin/signals.php">Сигналы</a>
+        </div>
     </div>
-    <div class="row g-3">
-        <div class="col-md-4"><div class="card"><div class="card-body"><small>BTCUSDT</small><h2>—</h2></div></div></div>
-        <div class="col-md-4"><div class="card"><div class="card-body"><small>Открытые позиции</small><h2>—</h2></div></div></div>
-        <div class="col-md-4"><div class="card"><div class="card-body"><small>Последний сигнал</small><h2>—</h2></div></div></div>
+</nav>
+<main class="container-fluid px-4 pb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+        <div>
+            <h1 class="h3 mb-1">Dashboard</h1>
+            <p class="text-secondary mb-0">Последние 100 свечей <?= $symbol ?> по таймфреймам</p>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
+            <button type="button" class="btn btn-outline-light btn-sm" id="refresh-charts">Обновить</button>
+        </div>
     </div>
-    <p class="text-secondary mt-4 mb-0">Начальный каркас панели. Данные и действия будут добавлены на следующем этапе.</p>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card bg-black border-secondary h-100">
+                <div class="card-body">
+                    <small class="text-secondary"><?= $symbol ?></small>
+                    <h2 class="mb-0" id="last-price">—</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-black border-secondary h-100">
+                <div class="card-body">
+                    <small class="text-secondary">Открытые позиции</small>
+                    <h2 class="mb-0" id="open-positions">—</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-black border-secondary h-100">
+                <div class="card-body">
+                    <small class="text-secondary">Последний сигнал</small>
+                    <h2 class="mb-0 fs-5" id="last-signal">—</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3" id="charts-grid">
+        <?php foreach ($intervals as $label => $code): ?>
+            <div class="col-12 col-xl-6">
+                <div class="card bg-black border-secondary h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center border-secondary">
+                        <span class="fw-semibold"><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></span>
+                        <small class="text-secondary chart-meta" data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>">загрузка…</small>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="chart-host" id="chart-<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>" data-interval="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"></div>
+                    </div>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
 </main>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/admin/assets/js/charts.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const dashboard = window.TradeSignalsCharts.createDashboard({
+            endpoint: '/api/candles.php?interval=all&limit=100',
+            containerSelector: '.chart-host',
+            priceSelector: '#last-price',
+        });
+        dashboard.load();
+        document.getElementById('refresh-charts')?.addEventListener('click', () => dashboard.load());
+        setInterval(() => dashboard.load(), 60_000);
+    });
+</script>
 </body>
 </html>
