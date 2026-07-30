@@ -10,20 +10,21 @@
 
 ```bash
 sudo apt update
-sudo apt install -y apache2 git composer php-cli php-curl php-mysql php-mbstring libapache2-mod-php unzip \
+sudo apt install -y apache2 git composer unzip \
   certbot python3-certbot-apache mysql-client
 sudo a2enmod rewrite headers ssl
 ```
 
-Проверьте версии:
+На целевом VPS PHP 8.2 расположен в `/usr/local/php82/bin/php`. Проверьте версии:
 
 ```bash
-PHP_BIN="$(command -v php8.2 || command -v php)"
-test -n "$PHP_BIN" && "$PHP_BIN" -v
+PHP_BIN=/usr/local/php82/bin/php
+"$PHP_BIN" -v
+"$PHP_BIN" -m | grep -E 'curl|mbstring|mysqli|pdo_mysql'
 mysql --version
 ```
 
-`PHP_BIN` должен показывать PHP не ниже 8.2. Если команда не найдена или версия ниже, сначала установите PHP 8.2 через репозиторий, подходящий для вашей ОС. MySQL нужен версии не ниже 5.7.8, поскольку схема использует тип `JSON`. В MySQL 5.7 конструкции `CHECK` принимаются, но сервер их не применяет: корректность параметров стратегий проверяется приложением.
+`PHP_BIN` должен показывать PHP не ниже 8.2, а вывод модулей — `curl`, `mbstring`, `mysqli` и `pdo_mysql`. MySQL нужен версии не ниже 5.7.8, поскольку схема использует тип `JSON`. В MySQL 5.7 конструкции `CHECK` принимаются, но сервер их не применяет: корректность параметров стратегий проверяется приложением.
 
 ## 2. Создание базы
 
@@ -47,7 +48,9 @@ sudo mkdir -p /ssd/www
 sudo git clone https://github.com/alexevil1979/tradesignals.git /ssd/www/tradesignals
 sudo chown -R "$USER":www-data /ssd/www/tradesignals
 cd /ssd/www/tradesignals
-composer install --no-dev --optimize-autoloader
+PHP_BIN=/usr/local/php82/bin/php
+COMPOSER_BIN="$(command -v composer)"
+"$PHP_BIN" "$COMPOSER_BIN" install --no-dev --optimize-autoloader
 mysql -u tradesignals -p -h 127.0.0.1 tradesignals < sql/schema.sql
 cp config/local.php.example config/local.php
 chmod 640 config/local.php
@@ -59,7 +62,7 @@ chown "$USER":www-data config/local.php
 Создайте администратора:
 
 ```bash
-PHP_BIN="$(command -v php8.2 || command -v php)"
+PHP_BIN=/usr/local/php82/bin/php
 "$PHP_BIN" bin/create_admin.php admin 'ПАРОЛЬ_ДЛИНОЙ_НЕ_МЕНЕЕ_12_СИМВОЛОВ'
 ```
 
@@ -115,24 +118,23 @@ sudo mkdir -p /var/log/tradesignals
 sudo chown www-data:www-data /var/log/tradesignals
 ```
 
-Узнайте абсолютный путь к PHP, затем подставьте его вместо `<PHP_BIN>` в crontab пользователя, от которого развёрнуто приложение:
+Откройте crontab пользователя, от которого развёрнуто приложение:
 
 ```bash
-readlink -f "$PHP_BIN"
 crontab -e
 ```
 
 ```cron
-* * * * * flock -n /tmp/tradesignals-candles.lock <PHP_BIN> /ssd/www/tradesignals/cron/fetch_candles.php >> /var/log/tradesignals/candles.log 2>&1
-* * * * * flock -n /tmp/tradesignals-signals.lock <PHP_BIN> /ssd/www/tradesignals/cron/process_signals.php >> /var/log/tradesignals/signals.log 2>&1
+* * * * * flock -n /tmp/tradesignals-candles.lock /usr/local/php82/bin/php /ssd/www/tradesignals/cron/fetch_candles.php >> /var/log/tradesignals/candles.log 2>&1
+* * * * * flock -n /tmp/tradesignals-signals.lock /usr/local/php82/bin/php /ssd/www/tradesignals/cron/process_signals.php >> /var/log/tradesignals/signals.log 2>&1
 ```
 
 Проверьте запуск вручную:
 
 ```bash
 cd /ssd/www/tradesignals
-"$PHP_BIN" cron/fetch_candles.php
-"$PHP_BIN" cron/process_signals.php
+/usr/local/php82/bin/php cron/fetch_candles.php
+/usr/local/php82/bin/php cron/process_signals.php
 ```
 
 ## 7. Обновление из Git
@@ -143,7 +145,9 @@ cd /ssd/www/tradesignals
 mysqldump -u tradesignals -p -h 127.0.0.1 tradesignals > "/ssd/backups/tradesignals-$(date +%F-%H%M%S).sql"
 cd /ssd/www/tradesignals
 git pull --ff-only origin main
-composer install --no-dev --optimize-autoloader
+PHP_BIN=/usr/local/php82/bin/php
+COMPOSER_BIN="$(command -v composer)"
+"$PHP_BIN" "$COMPOSER_BIN" install --no-dev --optimize-autoloader
 sudo systemctl reload apache2
 ```
 
