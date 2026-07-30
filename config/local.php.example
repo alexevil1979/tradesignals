@@ -1,0 +1,27 @@
+<?php
+declare(strict_types=1);
+
+// Скопируйте в config/local.php на сервере и замените все значения.
+return [
+    'app' => [
+        'env' => 'production',
+        'base_url' => 'https://td.1tlt.ru',
+        'timezone' => 'UTC',
+    ],
+    'database' => [
+        'host' => '127.0.0.1',
+        'port' => 3306,
+        'name' => 'tradesignals',
+        'user' => 'tradesignals',
+        'password' => 'CHANGE_THIS_DATABASE_PASSWORD',
+    ],
+    'bybit' => [
+        'api_key' => 'CHANGE_THIS_BYBIT_KEY',
+        'api_secret' => 'CHANGE_THIS_BYBIT_SECRET',
+        'testnet' => true,
+    ],
+    'telegram' => [
+        'token' => 'CHANGE_THIS_TELEGRAM_TOKEN',
+        'chat_id' => 'CHANGE_THIS_CHAT_ID',
+    ],
+];

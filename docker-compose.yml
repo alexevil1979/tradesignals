@@ -1,0 +1,46 @@
+services:
+  app:
+    build:
+      context: .
+    ports:
+      - "${APP_PORT:-8080}:80"
+    environment:
+      APP_ENV: development
+      APP_BASE_URL: http://localhost:${APP_PORT:-8080}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE:-bybit_bot}
+      DB_USER: ${MYSQL_USER:-bybit_bot}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-local_change_me}
+      BYBIT_TESTNET: "true"
+      BYBIT_API_KEY: ${BYBIT_API_KEY:-}
+      BYBIT_API_SECRET: ${BYBIT_API_SECRET:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./:/var/www/html
+    command: sh -c "composer install --no-interaction --no-progress && apache2-foreground"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mysql:8.4
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-bybit_bot}
+      MYSQL_USER: ${MYSQL_USER:-bybit_bot}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local_change_me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-local_root_change_me}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-local_root_change_me}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  mysql_data:
