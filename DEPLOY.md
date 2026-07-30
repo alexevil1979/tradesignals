@@ -55,8 +55,8 @@ open_basedir=/ssd/www/tradesignals:/usr/local/bin:/tmp:/usr/local/php82:/dev/ura
 ```bash
 mysql -u root -p <<'SQL'
 CREATE DATABASE tradesignals CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'tradesignals'@'127.0.0.1' IDENTIFIED BY 'CHANGE_STRONG_DB_PASSWORD';
-CREATE USER 'tradesignals'@'localhost' IDENTIFIED BY 'CHANGE_STRONG_DB_PASSWORD';
+CREATE USER 'tradesignals'@'127.0.0.1' IDENTIFIED BY 'qweasd333123';
+CREATE USER 'tradesignals'@'localhost' IDENTIFIED BY 'qweasd333123';
 GRANT ALL PRIVILEGES ON tradesignals.* TO 'tradesignals'@'127.0.0.1';
 GRANT ALL PRIVILEGES ON tradesignals.* TO 'tradesignals'@'localhost';
 FLUSH PRIVILEGES;
@@ -87,6 +87,17 @@ chown "$USER":www-data config/local.php
 Команды выше допустимы при deploy от `root`: `COMPOSER_HOME` перенаправлен в разрешённый `/tmp`, а `COMPOSER_ALLOW_SUPERUSER=1` отключает интерактивное предупреждение. В обычной конфигурации предпочтительнее отдельный непривилегированный пользователь для деплоя.
 
 Отредактируйте `config/local.php`: задайте пароль базы, ключи Bybit и Telegram. Этот файл исключён из Git и находится выше `public/`, поэтому не отдаётся веб-сервером.
+
+Проверьте, что PHP читает именно эти учётные данные и что пароль совпадает с MySQL:
+
+```bash
+PHP_BIN=/usr/local/php82/bin/php
+"$PHP_BIN" -r 'require "vendor/autoload.php"; $c=require "config/config.php"; echo $c["database"]["host"]."|".$c["database"]["name"]."|".$c["database"]["user"]."|".strlen((string)$c["database"]["password"]).PHP_EOL;'
+mysql -u tradesignals -p -h 127.0.0.1 tradesignals -e "SELECT 1"
+mysql -u tradesignals -p -h localhost tradesignals -e "SELECT 1"
+```
+
+Если CLI с `-h 127.0.0.1` проходит, а PHP нет — в `config/local.php` пароль отличается от введённого вручную. Если `host` в конфиге `localhost`, PDO использует Unix-сокет и учётную запись `tradesignals@localhost`.
 
 Создайте администратора:
 

@@ -33,7 +33,13 @@ final class Connection
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
         } catch (PDOException $exception) {
-            throw new RuntimeException('Не удалось подключиться к базе данных.', 0, $exception);
+            throw new RuntimeException(sprintf(
+                'Не удалось подключиться к базе данных (%s@%s:%d/%s).',
+                $config['user'],
+                $config['host'],
+                $config['port'],
+                $config['name'],
+            ), 0, $exception);
         }
 
         return self::$instance;
