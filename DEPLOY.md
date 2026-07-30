@@ -10,7 +10,7 @@
 
 ```bash
 sudo apt update
-sudo apt install -y apache2 git composer php php-cli php-curl php-mysql php-mbstring unzip \
+sudo apt install -y apache2 git composer libapache2-mod-php8.2 php8.2-cli php8.2-curl php8.2-mysql php8.2-mbstring unzip \
   certbot python3-certbot-apache mysql-client
 sudo a2enmod rewrite headers ssl
 ```
@@ -18,7 +18,7 @@ sudo a2enmod rewrite headers ssl
 Проверьте версии:
 
 ```bash
-php -v
+/usr/bin/php8.2 -v
 mysql --version
 ```
 
@@ -58,7 +58,7 @@ chown "$USER":www-data config/local.php
 Создайте администратора:
 
 ```bash
-php bin/create_admin.php admin 'ПАРОЛЬ_ДЛИНОЙ_НЕ_МЕНЕЕ_12_СИМВОЛОВ'
+/usr/bin/php8.2 bin/create_admin.php admin 'ПАРОЛЬ_ДЛИНОЙ_НЕ_МЕНЕЕ_12_СИМВОЛОВ'
 ```
 
 ## 4. Apache
@@ -116,16 +116,16 @@ sudo chown www-data:www-data /var/log/tradesignals
 Откройте crontab пользователя, от которого развёрнуто приложение (`crontab -e`), и добавьте:
 
 ```cron
-* * * * * flock -n /tmp/tradesignals-candles.lock /usr/bin/php /ssd/www/tradesignals/cron/fetch_candles.php >> /var/log/tradesignals/candles.log 2>&1
-* * * * * flock -n /tmp/tradesignals-signals.lock /usr/bin/php /ssd/www/tradesignals/cron/process_signals.php >> /var/log/tradesignals/signals.log 2>&1
+* * * * * flock -n /tmp/tradesignals-candles.lock /usr/bin/php8.2 /ssd/www/tradesignals/cron/fetch_candles.php >> /var/log/tradesignals/candles.log 2>&1
+* * * * * flock -n /tmp/tradesignals-signals.lock /usr/bin/php8.2 /ssd/www/tradesignals/cron/process_signals.php >> /var/log/tradesignals/signals.log 2>&1
 ```
 
 Проверьте запуск вручную:
 
 ```bash
 cd /ssd/www/tradesignals
-php cron/fetch_candles.php
-php cron/process_signals.php
+/usr/bin/php8.2 cron/fetch_candles.php
+/usr/bin/php8.2 cron/process_signals.php
 ```
 
 ## 7. Обновление из Git
