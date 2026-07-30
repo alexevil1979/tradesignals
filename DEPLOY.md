@@ -276,9 +276,18 @@ ProxyPassMatch ^/(.*\.php(/.*)?)$ fcgi://127.0.0.1:9072/ssd/www/tradesignals/pub
 ```bash
 apachectl configtest
 systemctl reload apache2
-# проверяйте именно https://td.1tlt.ru/phpver.php
+После правки vhost пересоздайте тестовый файл и проверьте FPM-pool: CLI `open_basedir` не всегда совпадает с настройками pool на порту `9072`.
+
+```bash
+echo '<?php echo PHP_VERSION, " ", __FILE__;' > /ssd/www/tradesignals/public/phpver.php
+chmod 644 /ssd/www/tradesignals/public/phpver.php
+apachectl configtest
+systemctl reload apache2
+curl -k https://td.1tlt.ru/phpver.php
+grep -R "9072\|open_basedir\|listen" /usr/local/php82/etc/php-fpm.d/ /usr/local/php82/etc/php-fpm.conf 2>/dev/null
 ```
 
+Если в pool есть `php_admin_value[open_basedir]`, добавьте туда `/ssd/www/tradesignals` и перезапустите FPM 8.2 (не только Apache).
 ## 5. SSL Let's Encrypt
 
 ```bash
