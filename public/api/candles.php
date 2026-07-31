@@ -2,8 +2,11 @@
 declare(strict_types=1);
 
 use App\Auth\AdminAuth;
+use App\Database\SettingsRepository;
 use App\Helpers\Intervals;
+use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
+use App\Strategy\SignalGridConfig;
 
 require dirname(__DIR__, 2) . '/bootstrap.php';
 
@@ -23,6 +26,19 @@ $limitRaw = (string) ($_GET['limit'] ?? 'all');
 $limit = ($limitRaw === 'all' || $limitRaw === '0') ? 0 : min(10000, max(1, (int) $limitRaw));
 $symbol = $config['bybit']['symbol'];
 $repository = new CandleRepository($pdo);
+$analyzer = new CandleAnalyzer();
+
+$settings = new SettingsRepository($pdo);
+$rawGrid = $settings->get(SignalGridConfig::SETTING_KEY);
+$decodedGrid = null;
+if (is_string($rawGrid) && $rawGrid !== '') {
+    try {
+        $decodedGrid = json_decode($rawGrid, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        $decodedGrid = null;
+    }
+}
+$signalGrid = SignalGridConfig::normalize($decodedGrid);
 
 $buildSeries = static function (array $rows, string $intervalCode): array {
     $candles = [];
@@ -47,6 +63,12 @@ $buildSeries = static function (array $rows, string $intervalCode): array {
     return $candles;
 };
 
+$sequenceFor = static function (array $candles, string $label) use ($analyzer, $signalGrid): array {
+    $minBody = (float) ($signalGrid['min_body'][$label] ?? 0);
+
+    return $analyzer->currentSequence($candles, $minBody);
+};
+
 $meta = [
     'symbol' => $symbol,
     'category' => $config['bybit']['category'],
@@ -60,9 +82,12 @@ $meta = [
 if ($requested === 'all') {
     $payload = $meta + ['intervals' => []];
     foreach ($intervals as $label => $code) {
+        $candles = $buildSeries($repository->latestForChart($symbol, $code, $limit), $code);
         $payload['intervals'][$label] = [
             'code' => $code,
-            'candles' => $buildSeries($repository->latestForChart($symbol, $code, $limit), $code),
+            'candles' => $candles,
+            'sequence' => $sequenceFor($candles, $label),
+            'min_body' => $signalGrid['min_body'][$label] ?? null,
         ];
     }
     echo json_encode($payload, JSON_THROW_ON_ERROR);
@@ -77,9 +102,12 @@ if (!isset($intervals[$requested]) && !in_array($requested, $intervals, true)) {
 
 $code = $intervals[$requested] ?? $requested;
 $label = array_search($code, $intervals, true) ?: $code;
+$candles = $buildSeries($repository->latestForChart($symbol, $code, $limit), $code);
 
 echo json_encode($meta + [
     'label' => $label,
     'code' => $code,
-    'candles' => $buildSeries($repository->latestForChart($symbol, $code, $limit), $code),
+    'candles' => $candles,
+    'sequence' => $sequenceFor($candles, (string) $label),
+    'min_body' => $signalGrid['min_body'][$label] ?? null,
 ], JSON_THROW_ON_ERROR);

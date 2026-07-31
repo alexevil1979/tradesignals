@@ -339,11 +339,24 @@
             Object.entries(payload.intervals || {}).forEach(([label, item]) => {
                 const entry = charts.get(label);
                 const meta = document.querySelector(`.chart-meta[data-label="${label}"]`);
+                const seqEl = document.querySelector(`.chart-seq[data-label="${label}"]`);
                 if (!entry) {
                     return;
                 }
                 const candles = item.candles || [];
                 entry.view.setCandles(candles);
+                if (seqEl) {
+                    const seqLabel = item.sequence && item.sequence.label ? item.sequence.label : '—';
+                    seqEl.textContent = `(${seqLabel})`;
+                    seqEl.classList.remove('text-success', 'text-danger', 'text-secondary');
+                    if (item.sequence && item.sequence.direction === 'up') {
+                        seqEl.classList.add('text-success');
+                    } else if (item.sequence && item.sequence.direction === 'down') {
+                        seqEl.classList.add('text-danger');
+                    } else {
+                        seqEl.classList.add('text-secondary');
+                    }
+                }
                 if (meta) {
                     meta.textContent = candles.length
                         ? `${candles.length} баров (все загруженные)`
