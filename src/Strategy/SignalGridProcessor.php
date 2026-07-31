@@ -248,12 +248,19 @@ final class SignalGridProcessor
     private function isCandleFullyClosed(string $openTime, string $intervalCode, ?int $now = null): bool
     {
         $now = $now ?? time();
-        $openTs = strtotime($openTime . ' UTC');
-        if ($openTs === false) {
-            return false;
+        try {
+            $open = new \DateTimeImmutable(trim($openTime), new \DateTimeZone('UTC'));
+        } catch (\Exception) {
+            $openTs = strtotime($openTime . ' UTC');
+            if ($openTs === false) {
+                return false;
+            }
+            $open = (new \DateTimeImmutable('@' . $openTs))->setTimezone(new \DateTimeZone('UTC'));
         }
 
-        return $now >= ($openTs + Intervals::durationSeconds($intervalCode));
+        $closeTs = $open->getTimestamp() + Intervals::durationSeconds($intervalCode);
+
+        return $now >= $closeTs;
     }
 
     private function candleCloseTimeUtc(string $openTime, string $intervalCode): string

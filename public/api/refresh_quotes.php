@@ -5,6 +5,11 @@ use App\Auth\AdminAuth;
 use App\Bybit\KlineService;
 use App\Database\SettingsRepository;
 use App\Helpers\Intervals;
+use App\Strategy\CandleAnalyzer;
+use App\Strategy\CandleRepository;
+use App\Strategy\SignalGridProcessor;
+use App\Strategy\SignalRepository;
+use App\Telegram\Bot;
 
 require dirname(__DIR__, 2) . '/bootstrap.php';
 
@@ -33,22 +38,66 @@ if (!$auth->verifyCsrf(is_string($csrf) ? $csrf : null)) {
 
 try {
     $bybitConfig = $config['bybit'];
-    $service = new KlineService($pdo, (string) $bybitConfig['category'], new SettingsRepository($pdo));
+    $symbol = (string) $bybitConfig['symbol'];
+    $settings = new SettingsRepository($pdo);
+    $service = new KlineService($pdo, (string) $bybitConfig['category'], $settings);
     $results = [];
     $total = 0;
 
     foreach (Intervals::codes() as $interval) {
-        $result = $service->syncInterval((string) $bybitConfig['symbol'], $interval);
+        $result = $service->syncInterval($symbol, $interval);
         $results[$interval] = $result;
         $total += $result['saved'];
     }
 
     $logger->info('Котировки обновлены с Dashboard (1 мин).', ['saved' => $total], 'quotes');
 
+    $signalsCreated = 0;
+    $signalsSkipped = null;
+    $botPaused = $settings->get('bot_paused', '1') === '1';
+
+    if ($botPaused) {
+        $signalsSkipped = 'bot_paused';
+        $logger->info('Сигналы пропущены: бот на паузе.', [], 'trading');
+    } else {
+        // Чтобы сообщения шли даже если cron/process_signals не сработал.
+        $lockPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'tradesignals-signals.lock';
+        $lock = fopen($lockPath, 'c+');
+        if ($lock === false) {
+            $signalsSkipped = 'lock_open_failed';
+            $logger->warning('Не удалось открыть lock файл сигналов.', ['path' => $lockPath], 'trading');
+        } elseif (!flock($lock, LOCK_EX | LOCK_NB)) {
+            $signalsSkipped = 'busy';
+            fclose($lock);
+        } else {
+            try {
+                $processor = new SignalGridProcessor(
+                    $settings,
+                    new CandleRepository($pdo),
+                    new CandleAnalyzer(),
+                    new SignalRepository($pdo),
+                    new Bot($config['telegram'], $logger),
+                    $logger,
+                );
+                $signalsCreated = $processor->process($symbol);
+                $logger->info('Обработка матрицы сигналов с Dashboard.', [
+                    'symbol' => $symbol,
+                    'created' => $signalsCreated,
+                ], 'cron');
+            } finally {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
+        }
+    }
+
     echo json_encode([
         'ok' => true,
         'saved' => $total,
         'intervals' => $results,
+        'signals_created' => $signalsCreated,
+        'signals_skipped' => $signalsSkipped,
+        'bot_paused' => $botPaused,
         'updated_at' => gmdate('Y-m-d H:i:s') . ' UTC',
     ], JSON_THROW_ON_ERROR);
 } catch (Throwable $exception) {
