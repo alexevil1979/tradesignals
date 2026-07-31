@@ -50,7 +50,7 @@ $marketLabel = $category === 'linear' ? 'USDT Perpetual' : $category;
                 График
                 <a class="link-light" href="https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT" target="_blank" rel="noopener noreferrer"><?= $symbol ?></a>
             </h1>
-            <p class="text-secondary mb-0"><?= $marketLabel ?> · последние 100 баров выбранного таймфрейма</p>
+            <p class="text-secondary mb-0"><?= $marketLabel ?> · все загруженные бары выбранного таймфрейма</p>
         </div>
         <div class="btn-group" role="group" aria-label="Таймфреймы">
             <?php foreach ($intervals as $label => $code): ?>
@@ -74,7 +74,7 @@ $marketLabel = $category === 'linear' ? 'USDT Perpetual' : $category;
 <script>
     document.addEventListener('DOMContentLoaded', async () => {
         const chart = window.TradeSignalsCharts.createSingleChart({
-            endpoint: '/api/candles.php?interval=<?= rawurlencode($active) ?>&limit=100',
+            endpoint: '/api/candles.php?interval=<?= rawurlencode($active) ?>&limit=all',
             containerId: 'main-chart',
         });
         const count = await chart.load();

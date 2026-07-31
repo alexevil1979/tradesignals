@@ -67,7 +67,7 @@
                 entry.chart.timeScale().fitContent();
                 if (meta) {
                     meta.textContent = candles.length
-                        ? `${candles.length} баров`
+                        ? `${candles.length} баров (все загруженные)`
                         : 'нет данных — запустите fetch_candles';
                 }
                 if (label === 'M1' && candles.length) {

@@ -46,7 +46,7 @@ $intervals = Intervals::chartMap();
             <p class="text-secondary mb-0">
                 Котировки
                 <a class="link-light" href="https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT" target="_blank" rel="noopener noreferrer"><?= $symbol ?> · <?= $marketLabel ?></a>
-                — последние 100 свечей по таймфреймам
+                — все загруженные свечи по таймфреймам
             </p>
         </div>
         <div class="d-flex gap-2 align-items-center">
@@ -107,7 +107,7 @@ $intervals = Intervals::chartMap();
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const dashboard = window.TradeSignalsCharts.createDashboard({
-            endpoint: '/api/candles.php?interval=all&limit=100',
+            endpoint: '/api/candles.php?interval=all&limit=all',
             containerSelector: '.chart-host',
             priceSelector: '#last-price',
         });

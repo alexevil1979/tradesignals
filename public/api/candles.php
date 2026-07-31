@@ -19,7 +19,8 @@ if (!$auth->check()) {
 
 $intervals = Intervals::chartMap();
 $requested = (string) ($_GET['interval'] ?? 'all');
-$limit = min(200, max(1, (int) ($_GET['limit'] ?? 100)));
+$limitRaw = (string) ($_GET['limit'] ?? 'all');
+$limit = ($limitRaw === 'all' || $limitRaw === '0') ? 0 : min(10000, max(1, (int) $limitRaw));
 $symbol = $config['bybit']['symbol'];
 $repository = new CandleRepository($pdo);
 
@@ -53,7 +54,7 @@ $meta = [
     'testnet' => false,
     'quotes_network' => 'mainnet',
     'source' => 'https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT',
-    'limit' => $limit,
+    'limit' => $limit === 0 ? 'all' : $limit,
 ];
 
 if ($requested === 'all') {
