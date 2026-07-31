@@ -70,7 +70,7 @@ final class SignalGridProcessor
             $maxBars = max($maxBars, (int) ($row['bars'] ?? 1));
         }
 
-        $candles = $this->candles->latestConfirmed($symbol, $intervalCode, $maxBars + 5);
+        $candles = $this->candles->latestConfirmed($symbol, $intervalCode, max($maxBars + 5, 20));
         if ($candles === []) {
             $this->logger->warning('Нет закрытых свечей для сигнала.', ['tf' => $tf, 'symbol' => $symbol], 'trading');
 
@@ -80,31 +80,55 @@ final class SignalGridProcessor
         $lastCandle = $candles[array_key_last($candles)];
         $candleOpenTime = (string) $lastCandle['open_time'];
 
-        // Сообщение только после полного закрытия свечи и только в окне сразу после закрытия
-        // (M1 ≈ после :59 сек минуты, H1 ≈ после :59 минуты часа и т.д.).
-        if (!$this->isFreshlyClosedCandle($candleOpenTime, $intervalCode)) {
+        if (!$this->isCandleFullyClosed($candleOpenTime, $intervalCode)) {
+            $this->logger->info('Пропуск ТФ: последняя свеча ещё не закрыта.', [
+                'tf' => $tf,
+                'candle_open_time' => $candleOpenTime,
+            ], 'trading');
+
             return 0;
         }
 
         $minBody = (float) ($grid['min_body'][$tf] ?? 0);
         $sequence = $this->analyzer->currentSequence($candles, $minBody);
-        if (($sequence['count'] ?? 0) <= 0 || ($sequence['direction'] ?? null) === null) {
+        $count = (int) ($sequence['count'] ?? 0);
+        $direction = $sequence['direction'] ?? null;
+
+        if ($count <= 0 || $direction === null) {
+            $this->logger->info('Нет серии для сигнала.', [
+                'tf' => $tf,
+                'min_body' => $minBody,
+                'reason' => $sequence['reason'] ?? $sequence['label'] ?? null,
+                'candle_open_time' => $candleOpenTime,
+            ], 'trading');
+
             return 0;
         }
 
-        $count = (int) $sequence['count'];
-        $direction = (string) $sequence['direction'];
+        $matchedRows = array_values(array_filter(
+            $enabledRows,
+            static fn (array $row): bool => (int) ($row['bars'] ?? 0) === $count
+        ));
+
+        if ($matchedRows === []) {
+            $enabledBars = array_map(static fn (array $row): int => (int) ($row['bars'] ?? 0), $enabledRows);
+            $this->logger->info('Серия есть, но нет строки матрицы с таким числом баров и включённым сигналом.', [
+                'tf' => $tf,
+                'sequence' => $count . ' ' . $direction,
+                'enabled_bars' => $enabledBars,
+                'candle_open_time' => $candleOpenTime,
+            ], 'trading');
+
+            return 0;
+        }
+
         $side = $direction === 'up' ? 'Sell' : 'Buy';
         $firstOpen = (float) ($sequence['first_open'] ?? 0);
         $lastClose = (float) ($sequence['last_close'] ?? $lastCandle['close_price']);
         $diff = (float) ($sequence['diff'] ?? ($lastClose - $firstOpen));
         $created = 0;
 
-        foreach ($enabledRows as $row) {
-            if ((int) ($row['bars'] ?? 0) !== $count) {
-                continue;
-            }
-
+        foreach ($matchedRows as $row) {
             $signalType = sprintf('grid_%s_%s', $tf, $direction);
             $message = $this->buildMessage(
                 $symbol,
@@ -147,6 +171,12 @@ final class SignalGridProcessor
             );
 
             if ($signalId === null) {
+                $this->logger->info('Сигнал для этой закрытой свечи уже был создан.', [
+                    'tf' => $tf,
+                    'signal_type' => $signalType,
+                    'candle_open_time' => $candleOpenTime,
+                    'bars' => $count,
+                ], 'trading');
                 continue;
             }
 
@@ -193,11 +223,8 @@ final class SignalGridProcessor
         return $created;
     }
 
-    /**
-     * Свеча полностью закрыта и закрытие было недавно (окно под минутный cron).
-     * H1: после конца часа (~:00 следующей), не во время формирования.
-     */
-    private function isFreshlyClosedCandle(string $openTime, string $intervalCode, ?int $now = null): bool
+    /** Свеча полностью закрыта по времени UTC (без узкого окна — дедуп по open_time). */
+    private function isCandleFullyClosed(string $openTime, string $intervalCode, ?int $now = null): bool
     {
         $now = $now ?? time();
         $openTs = strtotime($openTime . ' UTC');
@@ -205,16 +232,7 @@ final class SignalGridProcessor
             return false;
         }
 
-        $duration = Intervals::durationSeconds($intervalCode);
-        $closeTs = $openTs + $duration;
-        if ($now < $closeTs) {
-            return false;
-        }
-
-        // Окно после закрытия: минимум 2 минуты, максимум 5 минут (несколько тиков cron).
-        $window = max(120, min(300, $duration));
-
-        return ($now - $closeTs) < $window;
+        return $now >= ($openTs + Intervals::durationSeconds($intervalCode));
     }
 
     private function candleCloseTimeUtc(string $openTime, string $intervalCode): string

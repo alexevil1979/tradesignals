@@ -3,13 +3,16 @@ declare(strict_types=1);
 
 use App\Bybit\Client;
 use App\Bybit\InstrumentService;
+use App\Bybit\KlineService;
 use App\Bybit\OrderService;
 use App\Bybit\PositionService;
 use App\Database\SettingsRepository;
+use App\Helpers\Intervals;
 use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
 use App\Strategy\GridManager;
 use App\Strategy\RuleEngine;
+use App\Strategy\SignalGridConfig;
 use App\Strategy\SignalGridProcessor;
 use App\Strategy\SignalRepository;
 use App\Strategy\StrategyRepository;
@@ -20,7 +23,9 @@ require dirname(__DIR__) . '/bootstrap.php';
 
 $settings = new SettingsRepository($pdo);
 if ($settings->get('bot_paused', '1') === '1') {
-    echo "Бот на паузе.\n";
+    $logger->warning('process_signals: бот на паузе (bot_paused=1).', [], 'cron');
+    echo "Бот на паузе (settings.bot_paused=1). Сигналы не обрабатываются.\n";
+    echo "Снимите паузу: UPDATE settings SET setting_value='0' WHERE setting_key='bot_paused';\n";
     exit;
 }
 
@@ -28,6 +33,45 @@ $symbol = (string) $config['bybit']['symbol'];
 $telegram = new Bot($config['telegram'], $logger);
 $candleRepository = new CandleRepository($pdo);
 $signalRepository = new SignalRepository($pdo);
+
+// Перед проверкой сигналов подтягиваем свежие закрытые бары (иначе M1 часто «не видит» только что закрытую минуту).
+try {
+    $klineService = new KlineService($pdo, (string) $config['bybit']['category'], $settings);
+    $rawGrid = $settings->get(SignalGridConfig::SETTING_KEY);
+    $decodedGrid = null;
+    if (is_string($rawGrid) && $rawGrid !== '') {
+        try {
+            $decodedGrid = json_decode($rawGrid, true, 512, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            $decodedGrid = null;
+        }
+    }
+    $grid = SignalGridConfig::normalize($decodedGrid);
+    $map = Intervals::chartMap();
+    foreach (SignalGridConfig::TIMEFRAMES as $tf) {
+        $hasSignal = false;
+        foreach ($grid['timeframes'][$tf] ?? [] as $row) {
+            if (!empty($row['signal'])) {
+                $hasSignal = true;
+                break;
+            }
+        }
+        if (!$hasSignal) {
+            continue;
+        }
+        $code = $map[$tf] ?? null;
+        if ($code === null) {
+            continue;
+        }
+        $sync = $klineService->syncInterval($symbol, $code);
+        echo "Синхр. {$tf} ({$code}): {$sync['saved']} баров\n";
+    }
+} catch (Throwable $exception) {
+    $logger->error('Не удалось синхронизировать свечи перед сигналами.', [
+        'error' => $exception->getMessage(),
+    ], 'cron');
+    echo "Предупреждение: синхронизация свечей не удалась: {$exception->getMessage()}\n";
+}
 
 $gridProcessor = new SignalGridProcessor(
     $settings,
