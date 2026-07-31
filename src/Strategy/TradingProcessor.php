@@ -56,16 +56,26 @@ final class TradingProcessor
         }
 
         $message = sprintf(
-            'Сигнал <b>%s</b>: %s %s BTCUSDT, уровень %d, объём %s BTC, цена %s.',
+            'Сигнал <b>%s</b>: %s %s, уровень %d, объём %s BTC, цена %s.',
             htmlspecialchars($strategy['name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
             $evaluation['side'] === 'Buy' ? 'LONG' : 'SHORT',
-            $symbol,
+            htmlspecialchars($symbol, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
             $evaluation['candle_count'],
             $volume,
             $lastCandle['close_price'],
         );
-        if ($this->telegram->send($message)) {
+        if ($this->telegram->send($message, [
+            'signal_id' => $signalId,
+            'strategy_id' => $strategy['id'],
+            'symbol' => $symbol,
+        ])) {
             $this->signals->markTelegramSent($signalId);
+        } else {
+            $this->logger->error(
+                'Не удалось отправить классический сигнал в Telegram.',
+                ['signal_id' => $signalId, 'strategy_id' => $strategy['id']],
+                'telegram'
+            );
         }
 
         if (!$this->tradingEnabled) {

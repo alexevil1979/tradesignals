@@ -10,6 +10,7 @@ use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
 use App\Strategy\GridManager;
 use App\Strategy\RuleEngine;
+use App\Strategy\SignalGridProcessor;
 use App\Strategy\SignalRepository;
 use App\Strategy\StrategyRepository;
 use App\Strategy\TradingProcessor;
@@ -23,6 +24,26 @@ if ($settings->get('bot_paused', '1') === '1') {
     exit;
 }
 
+$symbol = (string) $config['bybit']['symbol'];
+$telegram = new Bot($config['telegram'], $logger);
+$candleRepository = new CandleRepository($pdo);
+$signalRepository = new SignalRepository($pdo);
+
+$gridProcessor = new SignalGridProcessor(
+    $settings,
+    $candleRepository,
+    new CandleAnalyzer(),
+    $signalRepository,
+    $telegram,
+    $logger,
+);
+$gridCreated = $gridProcessor->process($symbol);
+$logger->info('Обработка матрицы сигналов завершена.', [
+    'symbol' => $symbol,
+    'created' => $gridCreated,
+], 'cron');
+echo "Матрица сигналов: создано {$gridCreated}.\n";
+
 $strategies = (new StrategyRepository($pdo))->active();
 if (count($strategies) > 1) {
     $message = 'Для безопасности пока поддерживается только одна активная стратегия на BTCUSDT.';
@@ -30,19 +51,20 @@ if (count($strategies) > 1) {
     fwrite(STDERR, $message . PHP_EOL);
     exit(1);
 }
+
 if ($strategies === []) {
-    echo "Нет активных стратегий.\n";
+    echo "Классических активных стратегий нет.\n";
     exit;
 }
 
 $strategy = $strategies[0];
-$candles = (new CandleRepository($pdo))->latestConfirmed(
-    $config['bybit']['symbol'],
+$candles = $candleRepository->latestConfirmed(
+    $symbol,
     $strategy['interval_code'],
     $strategy['max_count'] + 1,
 );
 if (count($candles) < $strategy['min_count'] + 1) {
-    echo "Недостаточно закрытых свечей.\n";
+    echo "Недостаточно закрытых свечей для классической стратегии.\n";
     exit;
 }
 
@@ -51,14 +73,14 @@ $client = new Client($bybitConfig, $logger);
 $processor = new TradingProcessor(
     new RuleEngine(new CandleAnalyzer()),
     new GridManager(),
-    new SignalRepository($pdo),
+    $signalRepository,
     new OrderService($client, $pdo, $logger),
     new PositionService($client, $pdo),
     new InstrumentService($client),
-    new Bot($config['telegram'], $logger),
+    $telegram,
     $logger,
     $settings->get('trading_enabled', '0') === '1',
 );
-$processor->process($strategy, $bybitConfig['symbol'], $candles);
-$logger->info('Обработка сигналов завершена.', ['strategy_id' => $strategy['id']], 'cron');
+$processor->process($strategy, $symbol, $candles);
+$logger->info('Обработка классической стратегии завершена.', ['strategy_id' => $strategy['id']], 'cron');
 echo "Обработка стратегии #{$strategy['id']} завершена.\n";
