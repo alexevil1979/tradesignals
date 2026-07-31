@@ -27,5 +27,9 @@ return [
     'telegram' => [
         'token' => 'CHANGE_THIS_TELEGRAM_TOKEN',
         'chat_id' => 'CHANGE_THIS_CHAT_ID',
+        // Прокси для Bot API (как в botfabric notify_bot.py).
+        // Примеры: 'socks5h://127.0.0.1:1080', 'socks5://user:pass@host:1080', 'http://127.0.0.1:8080'
+        // Пустая строка = прямой доступ; иначе также читаются TELEGRAM_PROXY / HTTPS_PROXY / HTTP_PROXY.
+        'proxy' => 'socks5h://127.0.0.1:1080',
     ],
 ];

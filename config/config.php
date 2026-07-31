@@ -34,6 +34,8 @@ $config = [
     'telegram' => [
         'token' => getenv('TELEGRAM_BOT_TOKEN') ?: '',
         'chat_id' => getenv('TELEGRAM_CHAT_ID') ?: '',
+        // Как botfabric army.notify_http_proxy: socks5h://127.0.0.1:1080 или http://host:port
+        'proxy' => getenv('TELEGRAM_PROXY') ?: (getenv('HTTPS_PROXY') ?: (getenv('HTTP_PROXY') ?: '')),
     ],
     'trading' => [
         'candle_interval' => '1',
