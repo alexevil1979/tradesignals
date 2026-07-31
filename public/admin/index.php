@@ -88,7 +88,7 @@ $intervals = Intervals::chartMap();
 
     <div class="row g-3" id="charts-grid">
         <?php foreach ($intervals as $label => $code): ?>
-            <div class="col-12 col-xl-6">
+            <div class="col-12 col-md-6 col-xl-4">
                 <div class="card bg-black border-secondary h-100">
                     <div class="card-header d-flex justify-content-between align-items-center border-secondary">
                         <span class="fw-semibold"><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></span>
