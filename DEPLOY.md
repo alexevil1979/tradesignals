@@ -88,6 +88,18 @@ chown "$USER":www-data config/local.php
 
 Отредактируйте `config/local.php`: задайте пароль базы, ключи Bybit и Telegram. Этот файл исключён из Git и находится выше `public/`, поэтому не отдаётся веб-сервером.
 
+Для Telegram на VPS без прямого доступа к `api.telegram.org` укажите прокси (как в botfabric):
+
+```php
+'telegram' => [
+    'token' => '...',
+    'chat_id' => '...',
+    'proxy' => 'socks5h://127.0.0.1:1080', // или http://host:port
+],
+```
+
+Проверка: `/usr/local/php82/bin/php bin/test_telegram.php` — в логах канала `telegram` будет `http_proxy_used` / `http_proxy_masked`.
+
 Проверьте, что PHP читает именно эти учётные данные и что пароль совпадает с MySQL:
 
 ```bash
