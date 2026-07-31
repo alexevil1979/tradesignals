@@ -130,10 +130,16 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
                             <?php endforeach; ?>
                         </tr>
                         <tr>
-                            <?php foreach (SignalGridConfig::TIMEFRAMES as $_tf): ?>
+                            <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
                                 <th class="text-center small">баров</th>
-                                <th class="text-center small">сигнал</th>
-                                <th class="text-center small">ордер</th>
+                                <th class="text-center small signal-grid-toggle"
+                                    data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                    data-field="signal"
+                                    title="Клик: вкл/выкл все сигналы <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>">сигнал</th>
+                                <th class="text-center small signal-grid-toggle"
+                                    data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                    data-field="order"
+                                    title="Клик: вкл/выкл все ордера <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>">ордер</th>
                                 <th class="text-center small">размер</th>
                                 <th class="text-center small">запас</th>
                                 <th class="text-center small">стоп</th>
@@ -167,12 +173,16 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
                                     <td class="text-center">
                                         <input class="form-check-input" type="checkbox"
                                                name="<?= $prefix ?>[signal]" value="1"
+                                               data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                               data-field="signal"
                                             <?= !empty($row['signal']) ? 'checked' : '' ?>
                                                title="сигнал">
                                     </td>
                                     <td class="text-center">
                                         <input class="form-check-input" type="checkbox"
                                                name="<?= $prefix ?>[order]" value="1"
+                                               data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                               data-field="order"
                                             <?= !empty($row['order']) ? 'checked' : '' ?>
                                                title="ордер">
                                     </td>
@@ -210,5 +220,25 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
         </div>
     </form>
 </main>
+<script>
+    document.querySelectorAll('.signal-grid-toggle').forEach((header) => {
+        header.addEventListener('click', () => {
+            const tf = header.dataset.tf;
+            const field = header.dataset.field;
+            const boxes = Array.from(
+                document.querySelectorAll(
+                    `.signal-grid input[type="checkbox"][data-tf="${tf}"][data-field="${field}"]`
+                )
+            );
+            if (!boxes.length) {
+                return;
+            }
+            const turnOn = boxes.some((box) => !box.checked);
+            boxes.forEach((box) => {
+                box.checked = turnOn;
+            });
+        });
+    });
+</script>
 </body>
 </html>

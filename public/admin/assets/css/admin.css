@@ -57,3 +57,14 @@
 .signal-grid thead tr:first-child .signal-grid-sticky {
     z-index: 4;
 }
+
+.signal-grid-toggle {
+    cursor: pointer;
+    user-select: none;
+    text-decoration: underline dotted;
+    text-underline-offset: 0.2em;
+}
+
+.signal-grid-toggle:hover {
+    color: #6ea8fe !important;
+}
