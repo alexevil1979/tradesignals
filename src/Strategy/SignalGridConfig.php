@@ -31,7 +31,7 @@ final class SignalGridConfig
     public static function defaults(): array
     {
         $on = static fn (int $bars): array => [
-            'bars' => $bars,
+            'bars' => max(1, $bars),
             'signal' => true,
             'order' => true,
             'size' => '0.001',
@@ -40,7 +40,7 @@ final class SignalGridConfig
             'profit' => 300,
         ];
         $off = static fn (int $bars): array => [
-            'bars' => $bars,
+            'bars' => max(1, $bars),
             'signal' => false,
             'order' => false,
             'size' => '0.001',
@@ -59,12 +59,13 @@ final class SignalGridConfig
                 'D1' => 50,
             ],
             'timeframes' => [
-                'M1' => [$on(3), $off(6), $on(7), $off(8), $on(9)],
-                'M5' => [$on(2), $off(3), $on(5), $off(6), $on(7)],
-                'M15' => [$on(3), $off(6), $on(7), $off(8), $on(9)],
-                'H1' => [$on(2), $off(3), $on(5), $off(6), $on(7)],
-                'H4' => [$on(3), $off(6), $on(7), $off(8), $on(9)],
-                'D1' => [$on(2), $off(3), $on(5), $off(6), $on(7)],
+                // Уровень 1 бара тоже допустим (одна закрытая свеча с учётом min_body).
+                'M1' => [$off(1), $on(3), $off(6), $on(7), $off(8), $on(9)],
+                'M5' => [$off(1), $on(2), $off(3), $on(5), $off(6), $on(7)],
+                'M15' => [$off(1), $on(3), $off(6), $on(7), $off(8), $on(9)],
+                'H1' => [$off(1), $on(2), $off(3), $on(5), $off(6), $on(7)],
+                'H4' => [$off(1), $on(3), $off(6), $on(7), $off(8), $on(9)],
+                'D1' => [$off(1), $on(2), $off(3), $on(5), $off(6), $on(7)],
             ],
         ];
     }

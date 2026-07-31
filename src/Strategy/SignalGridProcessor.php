@@ -105,12 +105,12 @@ final class SignalGridProcessor
             return 0;
         }
 
-        // Любой включённый уровень bars: серия должна быть >= bars.
-        // Берём максимальный подходящий уровень (напр. серия 5 при уровнях 3 и 6 → сигнал на 3).
+        // Любой включённый уровень bars (включая 1): серия должна быть >= bars.
+        // Берём максимальный подходящий уровень (напр. серия 5 при уровнях 1 и 3 → сигнал на 3).
         $candidates = [];
         foreach ($enabledRows as $row) {
             $levelBars = (int) ($row['bars'] ?? 0);
-            if ($levelBars > 0 && $count >= $levelBars) {
+            if ($levelBars >= 1 && $count >= $levelBars) {
                 $candidates[] = $row;
             }
         }

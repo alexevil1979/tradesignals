@@ -80,7 +80,7 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
             <h1 class="h3 mb-1">Стратегии</h1>
-            <p class="text-secondary mb-0">Таблица сигналов по таймфреймам (как в Excel)</p>
+            <p class="text-secondary mb-0">Таблица сигналов по таймфреймам (как в Excel). Уровень <strong>баров</strong> может быть от 1 и выше — сигнал при серии ≥ этого числа.</p>
         </div>
         <div class="d-flex gap-2">
             <button type="submit" form="signal-grid-form" name="action" value="save" class="btn btn-success">Сохранить</button>
