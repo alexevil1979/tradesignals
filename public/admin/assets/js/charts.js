@@ -48,8 +48,6 @@
     function applyDefaultView(chart) {
         const ts = chart.timeScale();
         ts.applyOptions({ rightOffset: RIGHT_OFFSET_BARS });
-        // Не fitContent: при всех барах отступ 300 почти незаметен.
-        // scrollToRealTime оставляет справа пустое место в rightOffset баров.
         ts.scrollToRealTime();
     }
 
@@ -125,6 +123,26 @@
         };
     }
 
+    function resolveLogicalRange(state, barCount) {
+        let from = state.logical.from;
+        let to = state.logical.to;
+
+        if (
+            state.barCount != null &&
+            barCount != null &&
+            barCount !== state.barCount
+        ) {
+            const delta = barCount - state.barCount;
+            const wasFollowingRightEdge = state.logical.to > state.barCount - 1;
+            if (wasFollowingRightEdge) {
+                from += delta;
+                to += delta;
+            }
+        }
+
+        return { from, to };
+    }
+
     function restoreView(chart, series, state, barCount) {
         if (!state?.logical) {
             return false;
@@ -134,26 +152,7 @@
             const ts = chart.timeScale();
             const rightOffset = state.rightOffset != null ? state.rightOffset : RIGHT_OFFSET_BARS;
             ts.applyOptions({ rightOffset });
-
-            let from = state.logical.from;
-            let to = state.logical.to;
-
-            // Индексы старых баров не меняются; сдвигаем окно только если
-            // пользователь смотрел правый край (в кадр входит зона rightOffset).
-            if (
-                state.barCount != null &&
-                barCount != null &&
-                barCount !== state.barCount
-            ) {
-                const delta = barCount - state.barCount;
-                const wasFollowingRightEdge = state.logical.to > state.barCount - 1;
-                if (wasFollowingRightEdge) {
-                    from += delta;
-                    to += delta;
-                }
-            }
-
-            ts.setVisibleLogicalRange({ from, to });
+            ts.setVisibleLogicalRange(resolveLogicalRange(state, barCount));
 
             const priceScale = series.priceScale();
             if (state.price && state.price.from != null && state.price.to != null && state.autoScale === false) {
@@ -172,11 +171,45 @@
         }
     }
 
+    /**
+     * Обновляет последние бары через update() — viewport не сбрасывается.
+     * setData() используем только при первой загрузке / сильном расхождении.
+     */
+    function pushCandlesIncremental(series, prevCount, candles) {
+        const nextCount = candles.length;
+        if (prevCount <= 0 || nextCount <= 0) {
+            return false;
+        }
+        if (nextCount < prevCount || nextCount > prevCount + 3) {
+            return false;
+        }
+
+        const start = Math.max(0, prevCount - 5);
+        for (let i = start; i < nextCount; i += 1) {
+            series.update(candles[i]);
+        }
+        return true;
+    }
+
     function bindViewPersistence(chart, series, container, viewKey) {
         let saveTimer = null;
+        let unlockTimer = null;
         let applying = false;
         let barCount = 0;
         let state = loadPersistedView(viewKey);
+
+        const lock = () => {
+            applying = true;
+            window.clearTimeout(saveTimer);
+            window.clearTimeout(unlockTimer);
+        };
+
+        const unlock = (delayMs = 400) => {
+            window.clearTimeout(unlockTimer);
+            unlockTimer = window.setTimeout(() => {
+                applying = false;
+            }, delayMs);
+        };
 
         const scheduleSave = () => {
             if (applying || !viewKey || barCount <= 0) {
@@ -201,51 +234,82 @@
         container.addEventListener('touchend', scheduleSave, { passive: true });
         container.addEventListener('wheel', scheduleSave, { passive: true });
 
-        return {
-            applyAfterData(nextBarCount) {
-                barCount = nextBarCount || 0;
-                applying = true;
-                window.clearTimeout(saveTimer);
+        /**
+         * Единая точка обновления данных: лочим сохранение ДО setData/update,
+         * восстанавливаем вид синхронно и ещё раз в rAF (LW иногда сбрасывает кадр позже).
+         */
+        function setCandles(candles) {
+            lock();
 
-                const preferred = state || loadPersistedView(viewKey);
+            const preferred = state || loadPersistedView(viewKey);
+            const prevCount = barCount;
+            const nextCount = candles.length;
+            const usedIncremental = pushCandlesIncremental(series, prevCount, candles);
 
-                const apply = () => {
-                    if (barCount <= 0) {
-                        return;
-                    }
+            if (!usedIncremental) {
+                series.setData(candles);
+            }
 
-                    let restored = false;
-                    if (preferred) {
-                        restored = restoreView(chart, series, preferred, barCount);
-                    }
-                    if (!restored) {
-                        applyDefaultView(chart);
-                    }
+            barCount = nextCount;
 
-                    const current = captureView(chart, series, barCount);
-                    if (current) {
-                        state = current;
-                        // Не затираем сохранённый зум дефолтом, если restore не удался
-                        // из‑за гонки — только пишем удачный restore или первый дефолт.
-                        if (restored || !preferred) {
+            const applyPreferred = () => {
+                if (nextCount <= 0) {
+                    return false;
+                }
+                if (preferred) {
+                    return restoreView(chart, series, preferred, nextCount);
+                }
+                applyDefaultView(chart);
+                return false;
+            };
+
+            if (usedIncremental) {
+                // Viewport сам сохранился; только обновим barCount в state.
+                if (preferred) {
+                    const logical = resolveLogicalRange(preferred, nextCount);
+                    state = {
+                        ...preferred,
+                        logical,
+                        barCount: nextCount,
+                    };
+                    persistView(viewKey, state);
+                }
+                unlock(150);
+                return;
+            }
+
+            // setData сбрасывает масштаб — сразу возвращаем сохранённый вид.
+            const restored = applyPreferred();
+            if (preferred && restored) {
+                const logical = resolveLogicalRange(preferred, nextCount);
+                state = {
+                    ...preferred,
+                    logical,
+                    barCount: nextCount,
+                };
+                persistView(viewKey, state);
+            }
+
+            window.requestAnimationFrame(() => {
+                applyPreferred();
+                window.requestAnimationFrame(() => {
+                    applyPreferred();
+
+                    // Первый заход без сохранённого вида — запоминаем дефолт с rightOffset.
+                    if (!preferred && nextCount > 0) {
+                        const current = captureView(chart, series, nextCount);
+                        if (current) {
+                            state = current;
                             persistView(viewKey, current);
                         }
-                    } else if (preferred) {
-                        state = preferred;
                     }
-                };
 
-                // Два кадра: после setData timeScale ещё не готов в первом rAF.
-                window.requestAnimationFrame(() => {
-                    window.requestAnimationFrame(() => {
-                        apply();
-                        window.setTimeout(() => {
-                            applying = false;
-                        }, 300);
-                    });
+                    unlock(400);
                 });
-            },
-        };
+            });
+        }
+
+        return { setCandles };
     }
 
     function createDashboard({ endpoint, containerSelector, priceSelector }) {
@@ -279,8 +343,7 @@
                     return;
                 }
                 const candles = item.candles || [];
-                entry.series.setData(candles);
-                entry.view.applyAfterData(candles.length);
+                entry.view.setCandles(candles);
                 if (meta) {
                     meta.textContent = candles.length
                         ? `${candles.length} баров (все загруженные)`
@@ -325,8 +388,7 @@
             }
             const payload = await response.json();
             const candles = payload.candles || [];
-            entry.series.setData(candles);
-            entry.view.applyAfterData(candles.length);
+            entry.view.setCandles(candles);
             return candles.length;
         }
 

@@ -72,7 +72,7 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260731-2"></script>
+<script src="/admin/assets/js/charts.js?v=20260731-3"></script>
 <script>
     document.addEventListener('DOMContentLoaded', async () => {
         const chart = window.TradeSignalsCharts.createSingleChart({
