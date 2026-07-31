@@ -10,3 +10,50 @@
 .card.bg-black {
     background-color: #0d1117 !important;
 }
+
+.signal-grid-wrap {
+    max-height: calc(100vh - 260px);
+    overflow: auto;
+}
+
+.signal-grid {
+    min-width: 1680px;
+    font-size: 0.8rem;
+}
+
+.signal-grid th,
+.signal-grid td {
+    white-space: nowrap;
+    vertical-align: middle;
+    padding: 0.35rem 0.4rem;
+}
+
+.signal-grid .form-control-sm {
+    min-width: 4.2rem;
+    padding: 0.15rem 0.3rem;
+    font-size: 0.8rem;
+}
+
+.signal-grid .form-check-input {
+    margin: 0;
+    cursor: pointer;
+}
+
+.signal-grid-sticky {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background-color: #0d1117 !important;
+    min-width: 3.5rem;
+}
+
+.signal-grid thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background-color: #161b22 !important;
+}
+
+.signal-grid thead tr:first-child .signal-grid-sticky {
+    z-index: 4;
+}

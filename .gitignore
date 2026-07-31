@@ -4,3 +4,6 @@
 /example/
 /storage/logs/*
 !/storage/logs/.gitkeep
+*.xlsx
+/_read_xlsx.py
+/_xlsx_dump.json
