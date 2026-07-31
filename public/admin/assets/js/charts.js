@@ -172,23 +172,29 @@
     }
 
     /**
-     * Обновляет последние бары через update() — viewport не сбрасывается.
-     * setData() используем только при первой загрузке / сильном расхождении.
+     * Обновляет только хвост через update() — viewport не сбрасывается.
+     * LW Charts разрешает update лишь для последнего бара или бара новее него.
+     * setData() — при первой загрузке / сильном расхождении / ошибке update.
      */
     function pushCandlesIncremental(series, prevCount, candles) {
         const nextCount = candles.length;
         if (prevCount <= 0 || nextCount <= 0) {
             return false;
         }
-        if (nextCount < prevCount || nextCount > prevCount + 3) {
+        if (nextCount < prevCount || nextCount > prevCount + 5) {
             return false;
         }
 
-        const start = Math.max(0, prevCount - 5);
-        for (let i = start; i < nextCount; i += 1) {
-            series.update(candles[i]);
+        // Только последний существующий бар (заменить) и новые после него (добавить).
+        const start = Math.max(0, prevCount - 1);
+        try {
+            for (let i = start; i < nextCount; i += 1) {
+                series.update(candles[i]);
+            }
+            return true;
+        } catch (_error) {
+            return false;
         }
-        return true;
     }
 
     function bindViewPersistence(chart, series, container, viewKey) {
