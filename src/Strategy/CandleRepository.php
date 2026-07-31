@@ -32,7 +32,7 @@ final class CandleRepository
     }
 
     /**
-     * @return list<array{open_time:string,open_price:string,high_price:string,low_price:string,close_price:string,volume:string}>
+     * @return list<array{open_time:string,open_price:string,high_price:string,low_price:string,close_price:string,volume:string,is_confirmed:int|string}>
      */
     public function latestForChart(string $symbol, string $interval, int $limit = 100): array
     {
@@ -41,7 +41,7 @@ final class CandleRepository
         }
 
         $statement = $this->pdo->prepare(
-            'SELECT open_time, open_price, high_price, low_price, close_price, volume
+            'SELECT open_time, open_price, high_price, low_price, close_price, volume, is_confirmed
              FROM candles
              WHERE symbol = :symbol AND interval_code = :interval
              ORDER BY open_time DESC
@@ -58,12 +58,12 @@ final class CandleRepository
     /**
      * Все сохранённые свечи таймфрейма по возрастанию времени.
      *
-     * @return list<array{open_time:string,open_price:string,high_price:string,low_price:string,close_price:string,volume:string}>
+     * @return list<array{open_time:string,open_price:string,high_price:string,low_price:string,close_price:string,volume:string,is_confirmed:int|string}>
      */
     public function allForChart(string $symbol, string $interval): array
     {
         $statement = $this->pdo->prepare(
-            'SELECT open_time, open_price, high_price, low_price, close_price, volume
+            'SELECT open_time, open_price, high_price, low_price, close_price, volume, is_confirmed
              FROM candles
              WHERE symbol = :symbol AND interval_code = :interval
              ORDER BY open_time ASC'

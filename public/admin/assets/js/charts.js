@@ -244,10 +244,17 @@
             const preferred = state || loadPersistedView(viewKey);
             const prevCount = barCount;
             const nextCount = candles.length;
-            const usedIncremental = pushCandlesIncremental(series, prevCount, candles);
+            const chartCandles = candles.map((candle) => ({
+                time: candle.time,
+                open: candle.open,
+                high: candle.high,
+                low: candle.low,
+                close: candle.close,
+            }));
+            const usedIncremental = pushCandlesIncremental(series, prevCount, chartCandles);
 
             if (!usedIncremental) {
-                series.setData(candles);
+                series.setData(chartCandles);
             }
 
             barCount = nextCount;
@@ -346,13 +353,21 @@
                 const candles = item.candles || [];
                 entry.view.setCandles(candles);
                 if (seqEl) {
-                    const seqLabel = item.sequence && item.sequence.label ? item.sequence.label : '—';
+                    const seq = item.sequence || {};
+                    const seqLabel = seq.label || '—';
                     seqEl.textContent = `(${seqLabel})`;
-                    seqEl.classList.remove('text-success', 'text-danger', 'text-secondary');
-                    if (item.sequence && item.sequence.direction === 'up') {
+                    seqEl.title = seq.reason
+                        ? `Причина: ${seq.reason}`
+                        : (seq.direction
+                            ? `Последовательность по закрытым барам, мин. тело ${seq.min_body ?? '—'}`
+                            : '');
+                    seqEl.classList.remove('text-success', 'text-danger', 'text-secondary', 'text-warning');
+                    if (seq.direction === 'up') {
                         seqEl.classList.add('text-success');
-                    } else if (item.sequence && item.sequence.direction === 'down') {
+                    } else if (seq.direction === 'down') {
                         seqEl.classList.add('text-danger');
+                    } else if (seq.reason) {
+                        seqEl.classList.add('text-warning');
                     } else {
                         seqEl.classList.add('text-secondary');
                     }

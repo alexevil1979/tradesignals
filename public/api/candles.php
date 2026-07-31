@@ -57,6 +57,7 @@ $buildSeries = static function (array $rows, string $intervalCode): array {
             'high' => $high,
             'low' => $low,
             'close' => $close,
+            'confirmed' => (bool) ($row['is_confirmed'] ?? true),
         ];
     }
 
