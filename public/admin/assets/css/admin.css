@@ -68,3 +68,28 @@
 .signal-grid-toggle:hover {
     color: #6ea8fe !important;
 }
+
+.signal-grid-tf-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+
+.signal-grid-tf-toggle:hover {
+    color: #9ec1ff !important;
+}
+
+.signal-grid-tf-toggle.is-collapsed {
+    color: #ffc107 !important;
+}
+
+.signal-grid-tf-toggle.is-collapsed::after {
+    content: ' ▸';
+    font-size: 0.75em;
+    opacity: 0.85;
+}
+
+.signal-grid-tf-toggle:not(.is-collapsed)::after {
+    content: ' ▾';
+    font-size: 0.75em;
+    opacity: 0.55;
+}

@@ -126,24 +126,31 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
                         <tr>
                             <th class="signal-grid-sticky text-secondary" rowspan="2">баров</th>
                             <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
-                                <th class="text-center text-info" colspan="7"><?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?></th>
+                                <th class="text-center text-info signal-grid-tf-toggle"
+                                    data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                    data-colspan-expanded="7"
+                                    data-colspan-collapsed="2"
+                                    colspan="7"
+                                    title="Клик: свернуть/развернуть <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?></th>
                             <?php endforeach; ?>
                         </tr>
                         <tr>
                             <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
-                                <th class="text-center small">баров</th>
+                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="bars">баров</th>
                                 <th class="text-center small signal-grid-toggle"
                                     data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
                                     data-field="signal"
+                                    data-col="signal"
                                     title="Клик: вкл/выкл все сигналы <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>">сигнал</th>
                                 <th class="text-center small signal-grid-toggle"
                                     data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
                                     data-field="order"
+                                    data-col="order"
                                     title="Клик: вкл/выкл все ордера <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>">ордер</th>
-                                <th class="text-center small">размер</th>
-                                <th class="text-center small">запас</th>
-                                <th class="text-center small">стоп</th>
-                                <th class="text-center small">профит</th>
+                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="size">размер</th>
+                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="reserve">запас</th>
+                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="stop">стоп</th>
+                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="profit">профит</th>
                             <?php endforeach; ?>
                         </tr>
                         </thead>
@@ -164,13 +171,13 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
                                     ];
                                     $prefix = 'tf[' . $tf . '][' . $i . ']';
                                     ?>
-                                    <td>
+                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="bars">
                                         <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
                                                type="number" min="1" step="1"
                                                name="<?= $prefix ?>[bars]"
                                                value="<?= (int) $row['bars'] ?>">
                                     </td>
-                                    <td class="text-center">
+                                    <td class="text-center" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="signal">
                                         <input class="form-check-input" type="checkbox"
                                                name="<?= $prefix ?>[signal]" value="1"
                                                data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
@@ -178,7 +185,7 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
                                             <?= !empty($row['signal']) ? 'checked' : '' ?>
                                                title="сигнал">
                                     </td>
-                                    <td class="text-center">
+                                    <td class="text-center" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="order">
                                         <input class="form-check-input" type="checkbox"
                                                name="<?= $prefix ?>[order]" value="1"
                                                data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
@@ -186,25 +193,25 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
                                             <?= !empty($row['order']) ? 'checked' : '' ?>
                                                title="ордер">
                                     </td>
-                                    <td>
+                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="size">
                                         <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
                                                type="text" inputmode="decimal"
                                                name="<?= $prefix ?>[size]"
                                                value="<?= htmlspecialchars((string) $row['size'], ENT_QUOTES, 'UTF-8') ?>">
                                     </td>
-                                    <td>
+                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="reserve">
                                         <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
                                                type="number" step="any"
                                                name="<?= $prefix ?>[reserve]"
                                                value="<?= htmlspecialchars((string) $row['reserve'], ENT_QUOTES, 'UTF-8') ?>">
                                     </td>
-                                    <td>
+                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="stop">
                                         <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
                                                type="number" step="any"
                                                name="<?= $prefix ?>[stop]"
                                                value="<?= htmlspecialchars((string) $row['stop'], ENT_QUOTES, 'UTF-8') ?>">
                                     </td>
-                                    <td>
+                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="profit">
                                         <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
                                                type="number" step="any"
                                                name="<?= $prefix ?>[profit]"
@@ -221,24 +228,83 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
     </form>
 </main>
 <script>
-    document.querySelectorAll('.signal-grid-toggle').forEach((header) => {
-        header.addEventListener('click', () => {
-            const tf = header.dataset.tf;
-            const field = header.dataset.field;
-            const boxes = Array.from(
-                document.querySelectorAll(
-                    `.signal-grid input[type="checkbox"][data-tf="${tf}"][data-field="${field}"]`
-                )
-            );
-            if (!boxes.length) {
-                return;
+    (() => {
+        const COLLAPSE_KEY = 'tradesignals.signalGridCollapsed.v1';
+        const COLLAPSE_COLS = ['bars', 'size', 'reserve', 'stop', 'profit'];
+        const table = document.querySelector('.signal-grid');
+        if (!table) {
+            return;
+        }
+
+        const readCollapsed = () => {
+            try {
+                const raw = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}');
+                return raw && typeof raw === 'object' ? raw : {};
+            } catch (_error) {
+                return {};
             }
-            const turnOn = boxes.some((box) => !box.checked);
-            boxes.forEach((box) => {
-                box.checked = turnOn;
+        };
+
+        const writeCollapsed = (map) => {
+            try {
+                localStorage.setItem(COLLAPSE_KEY, JSON.stringify(map));
+            } catch (_error) {
+                // ignore
+            }
+        };
+
+        const applyTfCollapse = (tf, collapsed) => {
+            const className = `tf-collapsed-${tf}`;
+            table.classList.toggle(className, collapsed);
+
+            const header = table.querySelector(`.signal-grid-tf-toggle[data-tf="${tf}"]`);
+            if (header) {
+                const expanded = Number(header.dataset.colspanExpanded || 7);
+                const collapsedCols = Number(header.dataset.colspanCollapsed || 2);
+                header.colSpan = collapsed ? collapsedCols : expanded;
+                header.classList.toggle('is-collapsed', collapsed);
+            }
+
+            COLLAPSE_COLS.forEach((col) => {
+                table.querySelectorAll(`[data-tf="${tf}"][data-col="${col}"]`).forEach((cell) => {
+                    cell.hidden = collapsed;
+                });
+            });
+        };
+
+        let collapsedMap = readCollapsed();
+        document.querySelectorAll('.signal-grid-tf-toggle').forEach((header) => {
+            const tf = header.dataset.tf;
+            applyTfCollapse(tf, !!collapsedMap[tf]);
+
+            header.addEventListener('click', () => {
+                collapsedMap = readCollapsed();
+                collapsedMap[tf] = !collapsedMap[tf];
+                writeCollapsed(collapsedMap);
+                applyTfCollapse(tf, !!collapsedMap[tf]);
             });
         });
-    });
+
+        document.querySelectorAll('.signal-grid-toggle').forEach((header) => {
+            header.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const tf = header.dataset.tf;
+                const field = header.dataset.field;
+                const boxes = Array.from(
+                    document.querySelectorAll(
+                        `.signal-grid input[type="checkbox"][data-tf="${tf}"][data-field="${field}"]`
+                    )
+                );
+                if (!boxes.length) {
+                    return;
+                }
+                const turnOn = boxes.some((box) => !box.checked);
+                boxes.forEach((box) => {
+                    box.checked = turnOn;
+                });
+            });
+        });
+    })();
 </script>
 </body>
 </html>
