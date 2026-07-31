@@ -28,11 +28,11 @@
     cursor: pointer;
 }
 
-.chart-nav-btn:hover {
-    background: #21262d;
-    color: #fff;
-    border-color: #58a6ff;
+.chart-last-signal {
+    font-size: 0.8rem;
+    font-weight: 500;
 }
+
 
 .card.bg-black {
     background-color: #0d1117 !important;

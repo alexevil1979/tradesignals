@@ -7,6 +7,7 @@ use App\Helpers\Intervals;
 use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
 use App\Strategy\SignalGridConfig;
+use App\Strategy\SignalRepository;
 
 require dirname(__DIR__, 2) . '/bootstrap.php';
 
@@ -27,6 +28,8 @@ $limit = ($limitRaw === 'all' || $limitRaw === '0') ? 0 : min(10000, max(1, (int
 $symbol = $config['bybit']['symbol'];
 $repository = new CandleRepository($pdo);
 $analyzer = new CandleAnalyzer();
+$signals = new SignalRepository($pdo);
+$lastSignals = $signals->latestTelegramSentByTimeframe($symbol);
 
 $settings = new SettingsRepository($pdo);
 $rawGrid = $settings->get(SignalGridConfig::SETTING_KEY);
@@ -89,6 +92,7 @@ if ($requested === 'all') {
             'candles' => $candles,
             'sequence' => $sequenceFor($candles, $label),
             'min_body' => $signalGrid['min_body'][$label] ?? null,
+            'last_signal' => $lastSignals[$label] ?? null,
         ];
     }
     echo json_encode($payload, JSON_THROW_ON_ERROR);
@@ -111,4 +115,5 @@ echo json_encode($meta + [
     'candles' => $candles,
     'sequence' => $sequenceFor($candles, (string) $label),
     'min_body' => $signalGrid['min_body'][$label] ?? null,
+    'last_signal' => $lastSignals[$label] ?? null,
 ], JSON_THROW_ON_ERROR);

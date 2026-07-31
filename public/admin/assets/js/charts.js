@@ -396,6 +396,7 @@
                 const entry = charts.get(label);
                 const meta = document.querySelector(`.chart-meta[data-label="${label}"]`);
                 const seqEl = document.querySelector(`.chart-seq[data-label="${label}"]`);
+                const lastSignalEl = document.querySelector(`.chart-last-signal[data-label="${label}"]`);
                 if (!entry) {
                     return;
                 }
@@ -419,6 +420,20 @@
                         seqEl.classList.add('text-warning');
                     } else {
                         seqEl.classList.add('text-secondary');
+                    }
+                }
+                if (lastSignalEl) {
+                    const last = item.last_signal;
+                    if (last && last.label) {
+                        lastSignalEl.textContent = `· отпр. ${last.label} @ ${last.sent_at_label || last.telegram_sent_at || '—'}`;
+                        lastSignalEl.title = `Последний сигнал в Telegram: ${last.label}, отправлен ${last.telegram_sent_at || '—'}`;
+                        lastSignalEl.classList.remove('text-secondary', 'text-info');
+                        lastSignalEl.classList.add('text-info');
+                    } else {
+                        lastSignalEl.textContent = '· отпр. —';
+                        lastSignalEl.title = 'В Telegram по этому ТФ ещё не отправлялось';
+                        lastSignalEl.classList.remove('text-info');
+                        lastSignalEl.classList.add('text-secondary');
                     }
                 }
                 if (meta) {
@@ -466,6 +481,23 @@
             const payload = await response.json();
             const candles = payload.candles || [];
             entry.view.setCandles(candles);
+
+            const lastSignalEl = document.getElementById('chart-last-signal');
+            if (lastSignalEl) {
+                const last = payload.last_signal;
+                if (last && last.label) {
+                    lastSignalEl.textContent = `· отпр. ${last.label} @ ${last.sent_at_label || last.telegram_sent_at || '—'}`;
+                    lastSignalEl.title = `Последний сигнал в Telegram: ${last.label}, отправлен ${last.telegram_sent_at || '—'}`;
+                    lastSignalEl.classList.remove('text-secondary');
+                    lastSignalEl.classList.add('text-info');
+                } else {
+                    lastSignalEl.textContent = '· отпр. —';
+                    lastSignalEl.title = 'В Telegram по этому ТФ ещё не отправлялось';
+                    lastSignalEl.classList.remove('text-info');
+                    lastSignalEl.classList.add('text-secondary');
+                }
+            }
+
             return candles.length;
         }
 

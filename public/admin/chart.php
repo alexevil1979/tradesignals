@@ -61,10 +61,15 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
         </div>
     </div>
     <div class="card bg-black border-secondary">
-        <div class="card-header border-secondary d-flex justify-content-between">
-            <span><?= htmlspecialchars($active, ENT_QUOTES, 'UTF-8') ?></span>
-            <small class="text-secondary" id="chart-count">загрузка…</small>
-            <span class="badge text-bg-secondary ms-2" id="quotes-refresh-status">автообновление 60с</span>
+        <div class="card-header border-secondary d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span>
+                <?= htmlspecialchars($active, ENT_QUOTES, 'UTF-8') ?>
+                <span class="chart-last-signal text-secondary ms-1" id="chart-last-signal"></span>
+            </span>
+            <span class="d-flex align-items-center gap-2">
+                <small class="text-secondary" id="chart-count">загрузка…</small>
+                <span class="badge text-bg-secondary" id="quotes-refresh-status">автообновление 60с</span>
+            </span>
         </div>
         <div class="card-body p-2">
             <div class="chart-host chart-host-lg" id="main-chart"></div>
@@ -72,7 +77,7 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260731-7"></script>
+<script src="/admin/assets/js/charts.js?v=20260731-8"></script>
 <script>
     document.addEventListener('DOMContentLoaded', async () => {
         const chart = window.TradeSignalsCharts.createSingleChart({
