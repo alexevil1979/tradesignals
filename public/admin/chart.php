@@ -78,6 +78,7 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
         const chart = window.TradeSignalsCharts.createSingleChart({
             endpoint: '/api/candles.php?interval=<?= rawurlencode($active) ?>&limit=all',
             containerId: 'main-chart',
+            viewKey: 'single:<?= rawurlencode($active) ?>',
         });
 
         const updateCount = async () => {

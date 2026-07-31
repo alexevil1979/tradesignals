@@ -2,6 +2,7 @@
     'use strict';
 
     const RIGHT_OFFSET_BARS = 300;
+    const VIEW_STORAGE_KEY = 'tradesignals.chartView.v1';
 
     function createChart(container) {
         const chart = LightweightCharts.createChart(container, {
@@ -40,10 +41,9 @@
         resize();
         window.addEventListener('resize', resize);
 
-        return { chart, series, resize };
+        return { chart, series, resize, container };
     }
 
-    /** fitContent прижимает к правому краю — добавляем отступ в барах, как в TradingView. */
     function applyRightOffset(chart, offsetBars = RIGHT_OFFSET_BARS) {
         const ts = chart.timeScale();
         ts.applyOptions({ rightOffset: offsetBars });
@@ -57,12 +57,158 @@
         }
     }
 
+    function readViewStore() {
+        try {
+            return JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) || '{}') || {};
+        } catch (_error) {
+            return {};
+        }
+    }
+
+    function writeViewStore(store) {
+        try {
+            localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify(store));
+        } catch (_error) {
+            // ignore quota / private mode
+        }
+    }
+
+    function loadPersistedView(viewKey) {
+        const state = readViewStore()[viewKey];
+        if (!state || !state.time || state.time.from == null || state.time.to == null) {
+            return null;
+        }
+        return state;
+    }
+
+    function persistView(viewKey, state) {
+        if (!viewKey || !state?.time) {
+            return;
+        }
+        const store = readViewStore();
+        store[viewKey] = state;
+        writeViewStore(store);
+    }
+
+    function captureView(chart, series) {
+        const time = chart.timeScale().getVisibleRange();
+        if (!time || time.from == null || time.to == null) {
+            return null;
+        }
+        let price = null;
+        try {
+            const visiblePrice = series.priceScale().getVisibleRange();
+            if (visiblePrice && visiblePrice.from != null && visiblePrice.to != null) {
+                price = { from: visiblePrice.from, to: visiblePrice.to };
+            }
+        } catch (_error) {
+            price = null;
+        }
+        return {
+            time: { from: time.from, to: time.to },
+            price,
+        };
+    }
+
+    function restoreView(chart, series, state) {
+        if (!state?.time) {
+            return false;
+        }
+        try {
+            chart.timeScale().setVisibleRange({
+                from: state.time.from,
+                to: state.time.to,
+            });
+            if (state.price && state.price.from != null && state.price.to != null) {
+                series.priceScale().setVisibleRange({
+                    from: state.price.from,
+                    to: state.price.to,
+                });
+            }
+            return true;
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    /**
+     * Сохраняет зум/сдвиг в localStorage и восстанавливает их
+     * после обновления свечей и после перезагрузки страницы.
+     */
+    function bindViewPersistence(chart, series, container, viewKey) {
+        let saveTimer = null;
+        let applying = false;
+        let state = loadPersistedView(viewKey);
+
+        const scheduleSave = () => {
+            if (applying || !viewKey) {
+                return;
+            }
+            window.clearTimeout(saveTimer);
+            saveTimer = window.setTimeout(() => {
+                const next = captureView(chart, series);
+                if (!next) {
+                    return;
+                }
+                state = next;
+                persistView(viewKey, next);
+            }, 120);
+        };
+
+        chart.timeScale().subscribeVisibleTimeRangeChange(scheduleSave);
+        container.addEventListener('mouseup', scheduleSave);
+        container.addEventListener('touchend', scheduleSave, { passive: true });
+        container.addEventListener('wheel', scheduleSave, { passive: true });
+
+        return {
+            applyAfterData() {
+                applying = true;
+                window.clearTimeout(saveTimer);
+
+                const preferred = state || loadPersistedView(viewKey);
+                const done = () => {
+                    window.requestAnimationFrame(() => {
+                        applying = false;
+                    });
+                };
+
+                window.requestAnimationFrame(() => {
+                    let restored = false;
+                    if (preferred) {
+                        restored = restoreView(chart, series, preferred);
+                    }
+                    if (!restored) {
+                        applyRightOffset(chart);
+                    }
+                    const current = captureView(chart, series);
+                    if (current) {
+                        state = current;
+                        if (!preferred) {
+                            persistView(viewKey, current);
+                        }
+                    } else if (preferred) {
+                        state = preferred;
+                    }
+                    done();
+                });
+            },
+        };
+    }
+
     function createDashboard({ endpoint, containerSelector, priceSelector }) {
         const hosts = Array.from(document.querySelectorAll(containerSelector));
         const charts = new Map();
 
         hosts.forEach((host) => {
-            charts.set(host.dataset.interval, createChart(host));
+            const entry = createChart(host);
+            const label = host.dataset.interval;
+            entry.view = bindViewPersistence(
+                entry.chart,
+                entry.series,
+                entry.container,
+                `dashboard:${label}`
+            );
+            charts.set(label, entry);
         });
 
         async function load() {
@@ -81,7 +227,7 @@
                 }
                 const candles = item.candles || [];
                 entry.series.setData(candles);
-                applyRightOffset(entry.chart);
+                entry.view.applyAfterData();
                 if (meta) {
                     meta.textContent = candles.length
                         ? `${candles.length} баров (все загруженные)`
@@ -106,12 +252,18 @@
         return { load };
     }
 
-    function createSingleChart({ endpoint, containerId }) {
+    function createSingleChart({ endpoint, containerId, viewKey }) {
         const container = document.getElementById(containerId);
         if (!container) {
             return { load: async () => {} };
         }
         const entry = createChart(container);
+        entry.view = bindViewPersistence(
+            entry.chart,
+            entry.series,
+            entry.container,
+            viewKey || `single:${containerId}`
+        );
 
         async function load() {
             const response = await fetch(endpoint, { credentials: 'same-origin' });
@@ -121,7 +273,7 @@
             const payload = await response.json();
             const candles = payload.candles || [];
             entry.series.setData(candles);
-            applyRightOffset(entry.chart);
+            entry.view.applyAfterData();
             return candles.length;
         }
 
@@ -171,7 +323,11 @@
                     await onAfterRefresh(payload);
                 }
                 const now = new Date();
-                const stamp = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const stamp = now.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                });
                 setStatus(`обновлено ${stamp} · след. через 60с`, 'success');
             } catch (error) {
                 setStatus(`ошибка обновления`, 'danger');
