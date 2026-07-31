@@ -105,14 +105,23 @@ final class SignalGridProcessor
             return 0;
         }
 
-        $matchedRows = array_values(array_filter(
-            $enabledRows,
-            static fn (array $row): bool => (int) ($row['bars'] ?? 0) === $count
-        ));
+        // Любой включённый уровень bars: серия должна быть >= bars.
+        // Берём максимальный подходящий уровень (напр. серия 5 при уровнях 3 и 6 → сигнал на 3).
+        $candidates = [];
+        foreach ($enabledRows as $row) {
+            $levelBars = (int) ($row['bars'] ?? 0);
+            if ($levelBars > 0 && $count >= $levelBars) {
+                $candidates[] = $row;
+            }
+        }
+        usort(
+            $candidates,
+            static fn (array $a, array $b): int => ((int) ($b['bars'] ?? 0)) <=> ((int) ($a['bars'] ?? 0))
+        );
 
-        if ($matchedRows === []) {
+        if ($candidates === []) {
             $enabledBars = array_map(static fn (array $row): int => (int) ($row['bars'] ?? 0), $enabledRows);
-            $this->logger->info('Серия есть, но нет строки матрицы с таким числом баров и включённым сигналом.', [
+            $this->logger->info('Серия короче всех включённых уровней матрицы.', [
                 'tf' => $tf,
                 'sequence' => $count . ' ' . $direction,
                 'enabled_bars' => $enabledBars,
@@ -122,102 +131,114 @@ final class SignalGridProcessor
             return 0;
         }
 
+        $row = $candidates[0];
+        $levelBars = (int) $row['bars'];
         $side = $direction === 'up' ? 'Sell' : 'Buy';
         $firstOpen = (float) ($sequence['first_open'] ?? 0);
         $lastClose = (float) ($sequence['last_close'] ?? $lastCandle['close_price']);
         $diff = (float) ($sequence['diff'] ?? ($lastClose - $firstOpen));
         $created = 0;
 
-        foreach ($matchedRows as $row) {
-            $signalType = sprintf('grid_%s_%s', $tf, $direction);
-            $message = $this->buildMessage(
-                $symbol,
-                $tf,
-                $direction,
-                $side,
-                $count,
-                $lastCandle,
-                $row,
-                $firstOpen,
-                $lastClose,
-                $diff
-            );
-            $payload = [
-                'source' => 'signal_grid',
-                'interval' => $tf,
+        $signalType = sprintf('grid_%s_%s_%d', $tf, $direction, $levelBars);
+        $message = $this->buildMessage(
+            $symbol,
+            $tf,
+            $direction,
+            $side,
+            $count,
+            $lastCandle,
+            $row,
+            $firstOpen,
+            $lastClose,
+            $diff,
+            $levelBars
+        );
+        $payload = [
+            'source' => 'signal_grid',
+            'interval' => $tf,
+            'direction' => $direction,
+            'level_bars' => $levelBars,
+            'sequence_bars' => $count,
+            'min_body' => $minBody,
+            'size' => $row['size'] ?? null,
+            'reserve' => $row['reserve'] ?? null,
+            'stop' => $row['stop'] ?? null,
+            'profit' => $row['profit'] ?? null,
+            'order_enabled' => !empty($row['order']),
+            'first_open' => $firstOpen,
+            'last_close' => $lastClose,
+            'diff' => $diff,
+            'candle_closed_at' => $this->candleCloseTimeUtc($candleOpenTime, $intervalCode),
+            'telegram_text' => $message,
+        ];
+
+        $signalId = $this->signals->createOnceForClosedCandle(
+            null,
+            $symbol,
+            $side,
+            $signalType,
+            $count,
+            $candleOpenTime,
+            (string) $lastCandle['close_price'],
+            $payload,
+        );
+
+        if ($signalId === null) {
+            $this->logger->info('Сигнал для этой закрытой свечи уже был создан.', [
+                'tf' => $tf,
+                'signal_type' => $signalType,
+                'candle_open_time' => $candleOpenTime,
+                'level_bars' => $levelBars,
+                'sequence_bars' => $count,
+            ], 'trading');
+
+            return 0;
+        }
+
+        $created++;
+        $this->logger->info(
+            'Создан сигнал по закрытой свече.',
+            [
+                'signal_id' => $signalId,
+                'tf' => $tf,
                 'direction' => $direction,
-                'min_body' => $minBody,
-                'size' => $row['size'] ?? null,
-                'reserve' => $row['reserve'] ?? null,
-                'stop' => $row['stop'] ?? null,
-                'profit' => $row['profit'] ?? null,
-                'order_enabled' => !empty($row['order']),
-                'first_open' => $firstOpen,
-                'last_close' => $lastClose,
-                'diff' => $diff,
-                'candle_closed_at' => $this->candleCloseTimeUtc($candleOpenTime, $intervalCode),
-                'telegram_text' => $message,
-            ];
+                'level_bars' => $levelBars,
+                'sequence_bars' => $count,
+                'side' => $side,
+                'candle_open_time' => $candleOpenTime,
+                'price' => $lastCandle['close_price'],
+            ],
+            'trading'
+        );
 
-            $signalId = $this->signals->createOnceForClosedCandle(
-                null,
-                $symbol,
-                $side,
-                $signalType,
-                $count,
-                $candleOpenTime,
-                (string) $lastCandle['close_price'],
-                $payload,
-            );
-
-            if ($signalId === null) {
-                $this->logger->info('Сигнал для этой закрытой свечи уже был создан.', [
-                    'tf' => $tf,
-                    'signal_type' => $signalType,
-                    'candle_open_time' => $candleOpenTime,
-                    'bars' => $count,
-                ], 'trading');
-                continue;
-            }
-
-            $created++;
-            $this->logger->info(
-                'Создан сигнал по закрытой свече.',
+        $sent = $this->telegram->send($message, [
+            'signal_id' => $signalId,
+            'tf' => $tf,
+            'symbol' => $symbol,
+            'candle_open_time' => $candleOpenTime,
+            'level_bars' => $levelBars,
+        ]);
+        if ($sent) {
+            $this->signals->markTelegramSent($signalId);
+        } else {
+            $this->logger->error(
+                'Не удалось отправить сигнал в Telegram.',
                 [
                     'signal_id' => $signalId,
                     'tf' => $tf,
-                    'direction' => $direction,
-                    'bars' => $count,
-                    'side' => $side,
                     'candle_open_time' => $candleOpenTime,
-                    'price' => $lastCandle['close_price'],
+                    'level_bars' => $levelBars,
                 ],
+                'telegram'
+            );
+        }
+
+        if (!empty($row['order'])) {
+            $this->logger->info(
+                'Для сигнала включён ордер (исполнение ордеров из матрицы — следующий этап).',
+                ['signal_id' => $signalId, 'tf' => $tf, 'size' => $row['size'] ?? null],
                 'trading'
             );
-
-            $sent = $this->telegram->send($message, [
-                'signal_id' => $signalId,
-                'tf' => $tf,
-                'symbol' => $symbol,
-                'candle_open_time' => $candleOpenTime,
-            ]);
-            if ($sent) {
-                $this->signals->markTelegramSent($signalId);
-            } else {
-                $this->logger->error(
-                    'Не удалось отправить сигнал в Telegram.',
-                    ['signal_id' => $signalId, 'tf' => $tf, 'candle_open_time' => $candleOpenTime],
-                    'telegram'
-                );
-            }
-
-            if (!empty($row['order'])) {
-                $this->logger->info(
-                    'Для сигнала включён ордер (исполнение ордеров из матрицы — следующий этап).',
-                    ['signal_id' => $signalId, 'tf' => $tf, 'size' => $row['size'] ?? null],
-                    'trading'
-                );
-            }
         }
 
         return $created;
@@ -296,6 +317,7 @@ final class SignalGridProcessor
         float $firstOpen,
         float $lastClose,
         float $diff,
+        int $levelBars,
     ): string {
         $dirRu = $direction === 'up' ? 'вверх' : 'вниз';
         $sideRu = $side === 'Buy' ? 'LONG' : 'SHORT';
@@ -304,7 +326,8 @@ final class SignalGridProcessor
         return sprintf(
             "🔔 <b>Сигнал %s</b>\n" .
             "Пара: <b>%s</b>\n" .
-            "Серия: <b>%d %s</b>\n" .
+            "Уровень матрицы: <b>%d баров</b>\n" .
+            "Серия сейчас: <b>%d %s</b>\n" .
             "Сторона: <b>%s</b>\n" .
             "Открытие 1-й свечи: <b>%s</b>\n" .
             "Закрытие последней: <b>%s</b>\n" .
@@ -315,6 +338,7 @@ final class SignalGridProcessor
             "Свеча: %s",
             htmlspecialchars($tf, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
             htmlspecialchars($symbol, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+            $levelBars,
             $count,
             $dirRu,
             $sideRu,

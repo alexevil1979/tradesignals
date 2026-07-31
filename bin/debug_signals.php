@@ -67,7 +67,12 @@ foreach (SignalGridConfig::TIMEFRAMES as $tf) {
     }
 
     $count = (int) ($seq['count'] ?? 0);
-    $match = in_array($count, $enabled, true);
+    $matchLevel = null;
+    foreach ($enabled as $bars) {
+        if ($count >= $bars && ($matchLevel === null || $bars > $matchLevel)) {
+            $matchLevel = $bars;
+        }
+    }
 
     echo "=== {$tf} (interval {$code}) ===\n";
     echo '  min_body=' . $minBody . "\n";
@@ -75,8 +80,9 @@ foreach (SignalGridConfig::TIMEFRAMES as $tf) {
     echo '  candles_confirmed=' . count($candles) . "\n";
     echo '  last_open_time=' . ($openTime ?? '—') . ' closed=' . ($closed ? 'yes' : 'no') . "\n";
     echo '  sequence=' . ($seq['label'] ?? '—') . ' reason=' . ($seq['reason'] ?? '—') . "\n";
-    echo '  would_match_row=' . ($match ? 'YES' : 'NO') . "\n\n";
+    echo '  would_match_level=' . ($matchLevel !== null ? (string) $matchLevel : 'NO') . "\n\n";
 }
 
-echo "Готово. Если bot_paused=1 — снимите паузу. Если would_match_row=NO — серия сейчас не равна 3 (или другому включённому уровню).\n";
+echo "Готово. Если bot_paused=1 — снимите паузу.\n";
+echo "Сигнал срабатывает, если длина серии >= любому включённому уровню bars (берётся максимальный подходящий).\n";
 echo "Запуск обработки: php cron/process_signals.php\n";
