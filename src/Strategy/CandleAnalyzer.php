@@ -28,7 +28,16 @@ final class CandleAnalyzer
      * Незакрытый бар не участвует. Бар с телом меньше порога обнуляет последовательность.
      *
      * @param list<array<string, mixed>> $candles
-     * @return array{count:int, direction:'up'|'down'|null, label:string, reason:?string, min_body:float}
+     * @return array{
+     *   count:int,
+     *   direction:'up'|'down'|null,
+     *   label:string,
+     *   reason:?string,
+     *   min_body:float,
+     *   first_open:?float,
+     *   last_close:?float,
+     *   diff:?float
+     * }
      */
     public function currentSequence(array $candles, float $minBody): array
     {
@@ -38,6 +47,9 @@ final class CandleAnalyzer
             'label' => '—',
             'reason' => null,
             'min_body' => $minBody,
+            'first_open' => null,
+            'last_close' => null,
+            'diff' => null,
         ];
 
         if ($candles === []) {
@@ -78,8 +90,10 @@ final class CandleAnalyzer
 
         $count = 0;
         $direction = null;
+        $endIndex = count($forSeq) - 1;
+        $startIndex = $endIndex;
 
-        for ($index = count($forSeq) - 1; $index >= 0; $index--) {
+        for ($index = $endIndex; $index >= 0; $index--) {
             $candle = $forSeq[$index];
             $open = (float) ($candle['open_price'] ?? $candle['open'] ?? 0);
             $close = (float) ($candle['close_price'] ?? $candle['close'] ?? 0);
@@ -107,6 +121,7 @@ final class CandleAnalyzer
             if ($direction === null) {
                 $direction = $candleDirection;
                 $count = 1;
+                $startIndex = $index;
                 continue;
             }
 
@@ -115,11 +130,17 @@ final class CandleAnalyzer
             }
 
             $count++;
+            $startIndex = $index;
         }
 
         if ($count <= 0 || $direction === null) {
             return $base + ['label' => 'нет серии', 'reason' => 'не удалось определить направление'];
         }
+
+        $firstCandle = $forSeq[$startIndex];
+        $lastCandle = $forSeq[$endIndex];
+        $firstOpen = (float) ($firstCandle['open_price'] ?? $firstCandle['open'] ?? 0);
+        $seqLastClose = (float) ($lastCandle['close_price'] ?? $lastCandle['close'] ?? 0);
 
         return [
             'count' => $count,
@@ -127,6 +148,9 @@ final class CandleAnalyzer
             'label' => $count . ' ' . ($direction === 'up' ? 'вверх' : 'вниз'),
             'reason' => null,
             'min_body' => $minBody,
+            'first_open' => $firstOpen,
+            'last_close' => $seqLastClose,
+            'diff' => $seqLastClose - $firstOpen,
         ];
     }
 

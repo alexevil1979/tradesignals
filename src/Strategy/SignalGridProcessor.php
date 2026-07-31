@@ -87,6 +87,9 @@ final class SignalGridProcessor
         $direction = (string) $sequence['direction'];
         $side = $direction === 'up' ? 'Sell' : 'Buy';
         $lastCandle = $candles[array_key_last($candles)];
+        $firstOpen = (float) ($sequence['first_open'] ?? 0);
+        $lastClose = (float) ($sequence['last_close'] ?? $lastCandle['close_price']);
+        $diff = (float) ($sequence['diff'] ?? ($lastClose - $firstOpen));
         $created = 0;
 
         foreach ($enabledRows as $row) {
@@ -95,7 +98,18 @@ final class SignalGridProcessor
             }
 
             $signalType = sprintf('grid_%s_%s', $tf, $direction);
-            $message = $this->buildMessage($symbol, $tf, $direction, $side, $count, $lastCandle, $row);
+            $message = $this->buildMessage(
+                $symbol,
+                $tf,
+                $direction,
+                $side,
+                $count,
+                $lastCandle,
+                $row,
+                $firstOpen,
+                $lastClose,
+                $diff
+            );
             $payload = [
                 'source' => 'signal_grid',
                 'interval' => $tf,
@@ -106,6 +120,9 @@ final class SignalGridProcessor
                 'stop' => $row['stop'] ?? null,
                 'profit' => $row['profit'] ?? null,
                 'order_enabled' => !empty($row['order']),
+                'first_open' => $firstOpen,
+                'last_close' => $lastClose,
+                'diff' => $diff,
                 'telegram_text' => $message,
             ];
 
@@ -213,16 +230,22 @@ final class SignalGridProcessor
         int $count,
         array $lastCandle,
         array $row,
+        float $firstOpen,
+        float $lastClose,
+        float $diff,
     ): string {
         $dirRu = $direction === 'up' ? 'вверх' : 'вниз';
         $sideRu = $side === 'Buy' ? 'LONG' : 'SHORT';
+        $diffSign = $diff > 0 ? '+' : '';
 
         return sprintf(
             "🔔 <b>Сигнал %s</b>\n" .
             "Пара: <b>%s</b>\n" .
             "Серия: <b>%d %s</b>\n" .
             "Сторона: <b>%s</b>\n" .
-            "Цена: <b>%s</b>\n" .
+            "Открытие 1-й свечи: <b>%s</b>\n" .
+            "Закрытие последней: <b>%s</b>\n" .
+            "Разница: <b>%s%s</b>\n" .
             "Размер: %s | Запас: %s\n" .
             "Стоп: %s | Профит: %s\n" .
             "Ордер в матрице: %s\n" .
@@ -232,7 +255,10 @@ final class SignalGridProcessor
             $count,
             $dirRu,
             $sideRu,
-            htmlspecialchars((string) $lastCandle['close_price'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+            htmlspecialchars($this->formatPrice($firstOpen), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+            htmlspecialchars($this->formatPrice($lastClose), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+            $diffSign,
+            htmlspecialchars($this->formatPrice($diff), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
             htmlspecialchars((string) ($row['size'] ?? '—'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
             htmlspecialchars((string) ($row['reserve'] ?? '—'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
             htmlspecialchars((string) ($row['stop'] ?? '—'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
@@ -240,6 +266,13 @@ final class SignalGridProcessor
             !empty($row['order']) ? 'вкл' : 'выкл',
             htmlspecialchars((string) $lastCandle['open_time'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
         );
+    }
+
+    private function formatPrice(float $value): string
+    {
+        $formatted = rtrim(rtrim(sprintf('%.8F', $value), '0'), '.');
+
+        return $formatted === '' || $formatted === '-' ? '0' : $formatted;
     }
 
     /**
