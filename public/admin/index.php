@@ -50,10 +50,9 @@ $intervals = Intervals::chartMap();
             </p>
         </div>
         <div class="d-flex gap-2 align-items-center">
+            <span class="badge text-bg-success" title="Котировки всегда с api.bybit.com (mainnet), как на bybit.com">Котировки MAINNET</span>
             <?php if (!empty($config['bybit']['testnet'])): ?>
-                <span class="badge text-bg-warning" title="Котировки с api-testnet.bybit.com — они не совпадают с bybit.com">TESTNET</span>
-            <?php else: ?>
-                <span class="badge text-bg-success">MAINNET</span>
+                <span class="badge text-bg-warning" title="Торговые ордера могут идти в testnet">ORDERS TESTNET</span>
             <?php endif; ?>
             <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
             <button type="button" class="btn btn-outline-light btn-sm" id="refresh-charts">Обновить</button>

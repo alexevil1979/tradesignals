@@ -8,13 +8,29 @@ use DateTimeImmutable;
 use DateTimeZone;
 use PDO;
 
+/**
+ * Загрузка котировок по логике example/bbb/bothour/bybit_fill_tables.php:
+ * - публичный MAINNET Bybit (как на bybit.com/trade/usdt/BTCUSDT);
+ * - первичная история до 5000 баров страницами по 200 с параметром end;
+ * - дальше только обновление последних N баров без start/end.
+ */
 final class KlineService
 {
-    private const PAGE_LIMIT = 1000;
-    private const MAX_BACKFILL_PAGES_PER_RUN = 50;
+    private const PAGE_LIMIT = 200;
+    private const MAX_INIT_BARS = 5000;
+    private const MAINNET_KLINE_URL = 'https://api.bybit.com/v5/market/kline';
+
+    /** Сколько последних баров подтягивать при обычном обновлении (как в example). */
+    private const UPDATE_BARS = [
+        '1' => 60,
+        '5' => 50,
+        '15' => 40,
+        '60' => 30,
+        '240' => 20,
+        'D' => 15,
+    ];
 
     public function __construct(
-        private readonly Client $client,
         private readonly PDO $pdo,
         private readonly string $category = 'linear',
         private readonly ?SettingsRepository $settings = null,
@@ -22,66 +38,53 @@ final class KlineService
     }
 
     /**
-     * Разовый максимум истории + последующая догрузка только недостающих свечей.
-     *
      * @return array{saved:int,mode:string,pages:int,history_complete:bool}
      */
     public function syncInterval(string $symbol, string $interval): array
     {
-        $newestMs = $this->newestOpenTimeMs($symbol, $interval);
-        $oldestMs = $this->oldestOpenTimeMs($symbol, $interval);
-        $historyKey = $this->historyCompleteKey($interval);
-        $historyComplete = $this->settings?->get($historyKey, '0') === '1';
+        $count = $this->countCandles($symbol, $interval);
+        if ($count === 0) {
+            $result = $this->initialBackfill($symbol, $interval);
+            $this->settings?->set($this->historyCompleteKey($interval), '1');
 
-        $saved = 0;
-        $pages = 0;
-        $mode = 'incremental';
-
-        $purged = $this->purgeInvalidCandles($symbol, $interval);
-        if ($purged > 0) {
-            $this->settings?->set($this->historyCompleteKey($interval), '0');
-            $historyComplete = false;
-            $newestMs = $this->newestOpenTimeMs($symbol, $interval);
-            $oldestMs = $this->oldestOpenTimeMs($symbol, $interval);
+            return [
+                'saved' => $result['saved'],
+                'mode' => 'full_backfill',
+                'pages' => $result['pages'],
+                'history_complete' => true,
+            ];
         }
 
-        if ($newestMs === null) {
-            $mode = 'full_backfill';
-            $result = $this->backfillOlder($symbol, $interval, null);
-            $saved += $result['saved'];
-            $pages += $result['pages'];
-            $historyComplete = $result['complete'];
-        } else {
-            $forward = $this->syncForward($symbol, $interval, $newestMs);
-            $saved += $forward['saved'];
-            $pages += $forward['pages'];
+        $result = $this->updateRecent($symbol, $interval);
 
-            if (!$historyComplete) {
-                $mode = 'backfill_continue';
-                $oldestMs = $this->oldestOpenTimeMs($symbol, $interval);
-                $result = $this->backfillOlder($symbol, $interval, $oldestMs);
-                $saved += $result['saved'];
-                $pages += $result['pages'];
-                $historyComplete = $result['complete'];
+        return [
+            'saved' => $result['saved'],
+            'mode' => 'incremental',
+            'pages' => 1,
+            'history_complete' => true,
+        ];
+    }
+
+    /** Полная очистка свечей инструмента (кривые данные). */
+    public function clearAll(string $symbol): int
+    {
+        $statement = $this->pdo->prepare('DELETE FROM candles WHERE symbol = :symbol');
+        $statement->execute(['symbol' => $symbol]);
+        $deleted = $statement->rowCount();
+
+        if ($this->settings !== null) {
+            foreach (['1', '5', '15', '60', '240', 'D'] as $interval) {
+                $this->settings->set($this->historyCompleteKey($interval), '0');
             }
         }
 
-        if ($historyComplete) {
-            $this->settings?->set($historyKey, '1');
-        }
-
-        return [
-            'saved' => $saved,
-            'mode' => $mode,
-            'pages' => $pages,
-            'history_complete' => $historyComplete,
-        ];
+        return $deleted;
     }
 
     /** @return list<array<string, mixed>> */
     public function fetch(string $symbol, string $interval, int $limit = 200): array
     {
-        return $this->fetchPage($symbol, $interval, min(self::PAGE_LIMIT, max(1, $limit)));
+        return $this->fetchMainnetPage($symbol, $interval, min(self::PAGE_LIMIT, max(1, $limit)));
     }
 
     /** @param list<array<string, mixed>> $candles */
@@ -102,9 +105,6 @@ final class KlineService
 
         $saved = 0;
         foreach ($candles as $candle) {
-            if (!$this->isValidOhlc($candle)) {
-                continue;
-            }
             $statement->execute(['symbol' => $symbol, 'interval' => $interval] + $candle);
             $saved++;
         }
@@ -112,116 +112,68 @@ final class KlineService
         return $saved;
     }
 
-    /** Удаляет заведомо битые OHLC (ломают шкалу графика, как выброс ~1_000_000 на D1). */
-    public function purgeInvalidCandles(string $symbol, string $interval): int
+    /** @return array{saved:int,pages:int} */
+    private function initialBackfill(string $symbol, string $interval): array
     {
-        $statement = $this->pdo->prepare(
-            'DELETE FROM candles
-             WHERE symbol = :symbol
-               AND interval_code = :interval
-               AND (
-                    open_price <= 0 OR high_price <= 0 OR low_price <= 0 OR close_price <= 0
-                    OR high_price < open_price OR high_price < close_price OR high_price < low_price
-                    OR low_price > open_price OR low_price > close_price
-                    OR open_price < 1000 OR close_price < 1000
-                    OR open_price > 500000 OR high_price > 500000 OR low_price > 500000 OR close_price > 500000
-               )'
-        );
-        $statement->execute(['symbol' => $symbol, 'interval' => $interval]);
+        $stepSeconds = $this->intervalSeconds($interval);
+        $endTime = time();
+        $totalInserted = 0;
+        $pages = 0;
 
-        return $statement->rowCount();
-    }
+        while ($totalInserted < self::MAX_INIT_BARS) {
+            $pages++;
+            $rows = $this->fetchMainnetPage($symbol, $interval, self::PAGE_LIMIT, null, $endTime * 1000);
+            if ($rows === []) {
+                break;
+            }
 
-    /** @param array<string, mixed> $candle */
-    private function isValidOhlc(array $candle): bool
-    {
-        $open = (float) $candle['open'];
-        $high = (float) $candle['high'];
-        $low = (float) $candle['low'];
-        $close = (float) $candle['close'];
+            usort($rows, static fn (array $a, array $b): int => strcmp($a['open_time'], $b['open_time']));
+            $batch = [];
+            $minOpenTs = null;
+            foreach ($rows as $row) {
+                $batch[] = $row;
+                $openTs = strtotime($row['open_time'] . ' UTC');
+                if ($minOpenTs === null || $openTs < $minOpenTs) {
+                    $minOpenTs = $openTs;
+                }
+                if ($totalInserted + count($batch) >= self::MAX_INIT_BARS) {
+                    break;
+                }
+            }
 
-        if (min($open, $high, $low, $close) < 1000.0 || max($open, $high, $low, $close) > 500000.0) {
-            return false;
+            $totalInserted += $this->save($symbol, $interval, $batch);
+
+            if ($minOpenTs === null || count($rows) < self::PAGE_LIMIT) {
+                break;
+            }
+
+            // Как в example: следующий end = самый старый бар минус один период.
+            $endTime = $minOpenTs - $stepSeconds;
+            if ($endTime <= 0) {
+                break;
+            }
+            usleep(200_000);
         }
 
-        return $high >= $open
-            && $high >= $close
-            && $high >= $low
-            && $low <= $open
-            && $low <= $close;
+        return ['saved' => $totalInserted, 'pages' => $pages];
+    }
+
+    /** @return array{saved:int} */
+    private function updateRecent(string $symbol, string $interval): array
+    {
+        $limit = self::UPDATE_BARS[$interval] ?? 30;
+        $rows = $this->fetchMainnetPage($symbol, $interval, $limit);
+        usort($rows, static fn (array $a, array $b): int => strcmp($a['open_time'], $b['open_time']));
+
+        return ['saved' => $this->save($symbol, $interval, $rows)];
     }
 
     /**
-     * @return array{saved:int,pages:int}
+     * Публичный kline всегда с mainnet — как в working example и на bybit.com.
+     *
+     * @return list<array<string, mixed>>
      */
-    private function syncForward(string $symbol, string $interval, int $fromOpenTimeMs): array
-    {
-        $saved = 0;
-        $pages = 0;
-        $startMs = $fromOpenTimeMs;
-
-        while ($pages < self::MAX_BACKFILL_PAGES_PER_RUN) {
-            $candles = $this->fetchPage($symbol, $interval, self::PAGE_LIMIT, $startMs, null);
-            $pages++;
-            if ($candles === []) {
-                break;
-            }
-
-            $saved += $this->save($symbol, $interval, $candles);
-            $newestInPage = max(array_map(
-                static fn (array $candle): int => strtotime($candle['open_time'] . ' UTC') * 1000,
-                $candles,
-            ));
-
-            if (count($candles) < self::PAGE_LIMIT) {
-                break;
-            }
-
-            $startMs = $newestInPage + $this->intervalSeconds($interval) * 1000;
-            usleep(120_000);
-        }
-
-        return ['saved' => $saved, 'pages' => $pages];
-    }
-
-    /**
-     * @return array{saved:int,pages:int,complete:bool}
-     */
-    private function backfillOlder(string $symbol, string $interval, ?int $beforeOpenTimeMs): array
-    {
-        $saved = 0;
-        $pages = 0;
-        $endMs = $beforeOpenTimeMs === null ? null : $beforeOpenTimeMs - 1;
-        $complete = false;
-
-        while ($pages < self::MAX_BACKFILL_PAGES_PER_RUN) {
-            $candles = $this->fetchPage($symbol, $interval, self::PAGE_LIMIT, null, $endMs);
-            $pages++;
-            if ($candles === []) {
-                $complete = true;
-                break;
-            }
-
-            $saved += $this->save($symbol, $interval, $candles);
-            $oldestInPage = min(array_map(
-                static fn (array $candle): int => strtotime($candle['open_time'] . ' UTC') * 1000,
-                $candles,
-            ));
-
-            if (count($candles) < self::PAGE_LIMIT) {
-                $complete = true;
-                break;
-            }
-
-            $endMs = $oldestInPage - 1;
-            usleep(120_000);
-        }
-
-        return ['saved' => $saved, 'pages' => $pages, 'complete' => $complete];
-    }
-
-    /** @return list<array<string, mixed>> */
-    private function fetchPage(
+    private function fetchMainnetPage(
         string $symbol,
         string $interval,
         int $limit,
@@ -241,63 +193,65 @@ final class KlineService
             $query['end'] = $endMs;
         }
 
-        $response = $this->client->publicGet('/v5/market/kline', $query);
-        $rows = $response['result']['list'] ?? [];
-        if (!is_array($rows) || $rows === []) {
+        $url = self::MAINNET_KLINE_URL . '?' . http_build_query($query);
+        $curl = curl_init($url);
+        curl_setopt_array($curl, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        $response = curl_exec($curl);
+        $error = curl_error($curl);
+        curl_close($curl);
+
+        if (!is_string($response) || $error !== '') {
+            throw new \RuntimeException('Bybit kline недоступен: ' . ($error !== '' ? $error : 'пустой ответ'));
+        }
+
+        $decoded = json_decode($response, true);
+        if (!is_array($decoded) || ($decoded['retCode'] ?? -1) !== 0) {
+            throw new \RuntimeException('Bybit kline error: ' . (is_array($decoded) ? ($decoded['retMsg'] ?? 'unknown') : 'bad json'));
+        }
+
+        $list = $decoded['result']['list'] ?? [];
+        if (!is_array($list) || $list === []) {
             return [];
         }
 
         $intervalSeconds = $this->intervalSeconds($interval);
         $now = time();
+        $candles = [];
 
-        $candles = array_map(static function (array $candle) use ($intervalSeconds, $now): array {
-            $openTimestamp = intdiv((int) $candle[0], 1000);
-
-            return [
+        foreach ($list as $row) {
+            if (!is_array($row) || count($row) < 6) {
+                continue;
+            }
+            // Формат Bybit: [ts_ms, open, high, low, close, volume, turnover]
+            $openTimestamp = intdiv((int) $row[0], 1000);
+            $candles[] = [
                 'open_time' => (new DateTimeImmutable('@' . $openTimestamp))
                     ->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
-                'open' => (string) $candle[1],
-                'high' => (string) $candle[2],
-                'low' => (string) $candle[3],
-                'close' => (string) $candle[4],
-                'volume' => (string) $candle[5],
-                'turnover' => (string) $candle[6],
+                'open' => (string) $row[1],
+                'high' => (string) $row[2],
+                'low' => (string) $row[3],
+                'close' => (string) $row[4],
+                'volume' => (string) ($row[5] ?? '0'),
+                'turnover' => (string) ($row[6] ?? '0'),
                 'is_confirmed' => (int) ($openTimestamp + $intervalSeconds <= $now),
             ];
-        }, $rows);
-
-        usort(
-            $candles,
-            static fn (array $left, array $right): int => strcmp($left['open_time'], $right['open_time']),
-        );
+        }
 
         return $candles;
     }
 
-    private function newestOpenTimeMs(string $symbol, string $interval): ?int
+    private function countCandles(string $symbol, string $interval): int
     {
         $statement = $this->pdo->prepare(
-            'SELECT open_time FROM candles
-             WHERE symbol = :symbol AND interval_code = :interval
-             ORDER BY open_time DESC LIMIT 1'
+            'SELECT COUNT(*) FROM candles WHERE symbol = :symbol AND interval_code = :interval'
         );
         $statement->execute(['symbol' => $symbol, 'interval' => $interval]);
-        $value = $statement->fetchColumn();
 
-        return $value === false ? null : (int) (strtotime((string) $value . ' UTC') * 1000);
-    }
-
-    private function oldestOpenTimeMs(string $symbol, string $interval): ?int
-    {
-        $statement = $this->pdo->prepare(
-            'SELECT open_time FROM candles
-             WHERE symbol = :symbol AND interval_code = :interval
-             ORDER BY open_time ASC LIMIT 1'
-        );
-        $statement->execute(['symbol' => $symbol, 'interval' => $interval]);
-        $value = $statement->fetchColumn();
-
-        return $value === false ? null : (int) (strtotime((string) $value . ' UTC') * 1000);
+        return (int) $statement->fetchColumn();
     }
 
     private function historyCompleteKey(string $interval): string

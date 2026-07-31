@@ -22,7 +22,6 @@ $requested = (string) ($_GET['interval'] ?? 'all');
 $limit = min(200, max(1, (int) ($_GET['limit'] ?? 100)));
 $symbol = $config['bybit']['symbol'];
 $repository = new CandleRepository($pdo);
-$testnet = (bool) $config['bybit']['testnet'];
 
 $buildSeries = static function (array $rows, string $intervalCode): array {
     $candles = [];
@@ -31,18 +30,9 @@ $buildSeries = static function (array $rows, string $intervalCode): array {
         $high = (float) $row['high_price'];
         $low = (float) $row['low_price'];
         $close = (float) $row['close_price'];
-
-        // Отсекаем битые точки, иначе шкала D1 «взрывается» (как выброс ~1_000_000).
-        if (min($open, $high, $low, $close) < 1000.0 || max($open, $high, $low, $close) > 500000.0) {
-            continue;
-        }
-        if ($high < $open || $high < $close || $high < $low || $low > $open || $low > $close) {
-            continue;
-        }
-
         $dt = new DateTimeImmutable($row['open_time'] . ' UTC');
         $candles[] = [
-            // Для дневных/недельных Lightweight Charts ждёт YYYY-MM-DD, не unix-timestamp.
+            // Для дневных Lightweight Charts ждёт YYYY-MM-DD.
             'time' => in_array($intervalCode, ['D', 'W', 'M'], true)
                 ? $dt->format('Y-m-d')
                 : $dt->getTimestamp(),
@@ -60,10 +50,9 @@ $meta = [
     'symbol' => $symbol,
     'category' => $config['bybit']['category'],
     'market' => 'USDT Perpetual',
-    'testnet' => $testnet,
-    'source' => $testnet
-        ? 'https://testnet.bybit.com/trade/usdt/BTCUSDT'
-        : 'https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT',
+    'testnet' => false,
+    'quotes_network' => 'mainnet',
+    'source' => 'https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT',
     'limit' => $limit,
 ];
 
