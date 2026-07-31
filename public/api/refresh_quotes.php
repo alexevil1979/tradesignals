@@ -60,16 +60,29 @@ try {
         $signalsSkipped = 'bot_paused';
         $logger->info('Сигналы пропущены: бот на паузе.', [], 'trading');
     } else {
-        // Чтобы сообщения шли даже если cron/process_signals не сработал.
-        $lockPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'tradesignals-signals.lock';
-        $lock = fopen($lockPath, 'c+');
+        // Lock внутри проекта: /tmp часто закрыт open_basedir у PHP-FPM.
+        $lockDir = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'locks';
+        if (!is_dir($lockDir)) {
+            @mkdir($lockDir, 0775, true);
+        }
+        $lockPath = $lockDir . DIRECTORY_SEPARATOR . 'tradesignals-signals.lock';
+        $lock = @fopen($lockPath, 'c+');
+        $locked = false;
+
         if ($lock === false) {
-            $signalsSkipped = 'lock_open_failed';
-            $logger->warning('Не удалось открыть lock файл сигналов.', ['path' => $lockPath], 'trading');
+            $logger->warning('Lock сигналов недоступен, обрабатываем без блокировки.', [
+                'path' => $lockPath,
+            ], 'trading');
         } elseif (!flock($lock, LOCK_EX | LOCK_NB)) {
             $signalsSkipped = 'busy';
             fclose($lock);
+            $lock = false;
+            $logger->info('Сигналы пропущены: уже выполняется другая обработка.', [], 'trading');
         } else {
+            $locked = true;
+        }
+
+        if ($signalsSkipped !== 'busy') {
             try {
                 $processor = new SignalGridProcessor(
                     $settings,
@@ -85,8 +98,12 @@ try {
                     'created' => $signalsCreated,
                 ], 'cron');
             } finally {
-                flock($lock, LOCK_UN);
-                fclose($lock);
+                if (is_resource($lock)) {
+                    if ($locked) {
+                        flock($lock, LOCK_UN);
+                    }
+                    fclose($lock);
+                }
             }
         }
     }
