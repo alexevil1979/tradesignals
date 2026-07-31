@@ -2,7 +2,7 @@
     'use strict';
 
     const RIGHT_OFFSET_BARS = 300;
-    const VIEW_STORAGE_KEY = 'tradesignals.chartView.v1';
+    const VIEW_STORAGE_KEY = 'tradesignals.chartView.v2';
 
     function createChart(container) {
         const chart = LightweightCharts.createChart(container, {
@@ -20,6 +20,7 @@
                 timeVisible: true,
                 secondsVisible: false,
                 rightOffset: RIGHT_OFFSET_BARS,
+                shiftVisibleRangeOnNewBar: false,
             },
             crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
         });
@@ -44,17 +45,12 @@
         return { chart, series, resize, container };
     }
 
-    function applyRightOffset(chart, offsetBars = RIGHT_OFFSET_BARS) {
+    function applyDefaultView(chart) {
         const ts = chart.timeScale();
-        ts.applyOptions({ rightOffset: offsetBars });
-        ts.fitContent();
-        const range = ts.getVisibleLogicalRange();
-        if (range) {
-            ts.setVisibleLogicalRange({
-                from: range.from,
-                to: range.to + offsetBars,
-            });
-        }
+        ts.applyOptions({ rightOffset: RIGHT_OFFSET_BARS });
+        // Не fitContent: при всех барах отступ 300 почти незаметен.
+        // scrollToRealTime оставляет справа пустое место в rightOffset баров.
+        ts.scrollToRealTime();
     }
 
     function readViewStore() {
@@ -69,20 +65,20 @@
         try {
             localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify(store));
         } catch (_error) {
-            // ignore quota / private mode
+            // ignore
         }
     }
 
     function loadPersistedView(viewKey) {
         const state = readViewStore()[viewKey];
-        if (!state || !state.time || state.time.from == null || state.time.to == null) {
+        if (!state?.logical || state.logical.from == null || state.logical.to == null) {
             return null;
         }
         return state;
     }
 
     function persistView(viewKey, state) {
-        if (!viewKey || !state?.time) {
+        if (!viewKey || !state?.logical) {
             return;
         }
         const store = readViewStore();
@@ -90,106 +86,163 @@
         writeViewStore(store);
     }
 
-    function captureView(chart, series) {
-        const time = chart.timeScale().getVisibleRange();
-        if (!time || time.from == null || time.to == null) {
+    function captureView(chart, series, barCount) {
+        const logical = chart.timeScale().getVisibleLogicalRange();
+        if (!logical || logical.from == null || logical.to == null) {
             return null;
         }
+
         let price = null;
+        let autoScale = true;
         try {
-            const visiblePrice = series.priceScale().getVisibleRange();
-            if (visiblePrice && visiblePrice.from != null && visiblePrice.to != null) {
+            const priceScale = series.priceScale();
+            const opts = typeof priceScale.options === 'function' ? priceScale.options() : null;
+            autoScale = !opts || opts.autoScale !== false;
+            const visiblePrice = priceScale.getVisibleRange();
+            if (!autoScale && visiblePrice && visiblePrice.from != null && visiblePrice.to != null) {
                 price = { from: visiblePrice.from, to: visiblePrice.to };
             }
         } catch (_error) {
             price = null;
         }
+
+        let rightOffset = RIGHT_OFFSET_BARS;
+        try {
+            const tsOpts = chart.timeScale().options();
+            if (tsOpts && tsOpts.rightOffset != null) {
+                rightOffset = tsOpts.rightOffset;
+            }
+        } catch (_error) {
+            rightOffset = RIGHT_OFFSET_BARS;
+        }
+
         return {
-            time: { from: time.from, to: time.to },
+            logical: { from: logical.from, to: logical.to },
+            barCount: barCount ?? null,
+            rightOffset,
             price,
+            autoScale,
         };
     }
 
-    function restoreView(chart, series, state) {
-        if (!state?.time) {
+    function restoreView(chart, series, state, barCount) {
+        if (!state?.logical) {
             return false;
         }
+
         try {
-            chart.timeScale().setVisibleRange({
-                from: state.time.from,
-                to: state.time.to,
-            });
-            if (state.price && state.price.from != null && state.price.to != null) {
-                series.priceScale().setVisibleRange({
+            const ts = chart.timeScale();
+            const rightOffset = state.rightOffset != null ? state.rightOffset : RIGHT_OFFSET_BARS;
+            ts.applyOptions({ rightOffset });
+
+            let from = state.logical.from;
+            let to = state.logical.to;
+
+            // Индексы старых баров не меняются; сдвигаем окно только если
+            // пользователь смотрел правый край (в кадр входит зона rightOffset).
+            if (
+                state.barCount != null &&
+                barCount != null &&
+                barCount !== state.barCount
+            ) {
+                const delta = barCount - state.barCount;
+                const wasFollowingRightEdge = state.logical.to > state.barCount - 1;
+                if (wasFollowingRightEdge) {
+                    from += delta;
+                    to += delta;
+                }
+            }
+
+            ts.setVisibleLogicalRange({ from, to });
+
+            const priceScale = series.priceScale();
+            if (state.price && state.price.from != null && state.price.to != null && state.autoScale === false) {
+                priceScale.applyOptions({ autoScale: false });
+                priceScale.setVisibleRange({
                     from: state.price.from,
                     to: state.price.to,
                 });
+            } else {
+                priceScale.applyOptions({ autoScale: true });
             }
+
             return true;
         } catch (_error) {
             return false;
         }
     }
 
-    /**
-     * Сохраняет зум/сдвиг в localStorage и восстанавливает их
-     * после обновления свечей и после перезагрузки страницы.
-     */
     function bindViewPersistence(chart, series, container, viewKey) {
         let saveTimer = null;
         let applying = false;
+        let barCount = 0;
         let state = loadPersistedView(viewKey);
 
         const scheduleSave = () => {
-            if (applying || !viewKey) {
+            if (applying || !viewKey || barCount <= 0) {
                 return;
             }
             window.clearTimeout(saveTimer);
             saveTimer = window.setTimeout(() => {
-                const next = captureView(chart, series);
+                if (applying) {
+                    return;
+                }
+                const next = captureView(chart, series, barCount);
                 if (!next) {
                     return;
                 }
                 state = next;
                 persistView(viewKey, next);
-            }, 120);
+            }, 200);
         };
 
-        chart.timeScale().subscribeVisibleTimeRangeChange(scheduleSave);
+        chart.timeScale().subscribeVisibleLogicalRangeChange(scheduleSave);
         container.addEventListener('mouseup', scheduleSave);
         container.addEventListener('touchend', scheduleSave, { passive: true });
         container.addEventListener('wheel', scheduleSave, { passive: true });
 
         return {
-            applyAfterData() {
+            applyAfterData(nextBarCount) {
+                barCount = nextBarCount || 0;
                 applying = true;
                 window.clearTimeout(saveTimer);
 
                 const preferred = state || loadPersistedView(viewKey);
-                const done = () => {
-                    window.requestAnimationFrame(() => {
-                        applying = false;
-                    });
-                };
 
-                window.requestAnimationFrame(() => {
+                const apply = () => {
+                    if (barCount <= 0) {
+                        return;
+                    }
+
                     let restored = false;
                     if (preferred) {
-                        restored = restoreView(chart, series, preferred);
+                        restored = restoreView(chart, series, preferred, barCount);
                     }
                     if (!restored) {
-                        applyRightOffset(chart);
+                        applyDefaultView(chart);
                     }
-                    const current = captureView(chart, series);
+
+                    const current = captureView(chart, series, barCount);
                     if (current) {
                         state = current;
-                        if (!preferred) {
+                        // Не затираем сохранённый зум дефолтом, если restore не удался
+                        // из‑за гонки — только пишем удачный restore или первый дефолт.
+                        if (restored || !preferred) {
                             persistView(viewKey, current);
                         }
                     } else if (preferred) {
                         state = preferred;
                     }
-                    done();
+                };
+
+                // Два кадра: после setData timeScale ещё не готов в первом rAF.
+                window.requestAnimationFrame(() => {
+                    window.requestAnimationFrame(() => {
+                        apply();
+                        window.setTimeout(() => {
+                            applying = false;
+                        }, 300);
+                    });
                 });
             },
         };
@@ -227,7 +280,7 @@
                 }
                 const candles = item.candles || [];
                 entry.series.setData(candles);
-                entry.view.applyAfterData();
+                entry.view.applyAfterData(candles.length);
                 if (meta) {
                     meta.textContent = candles.length
                         ? `${candles.length} баров (все загруженные)`
@@ -273,7 +326,7 @@
             const payload = await response.json();
             const candles = payload.candles || [];
             entry.series.setData(candles);
-            entry.view.applyAfterData();
+            entry.view.applyAfterData(candles.length);
             return candles.length;
         }
 
