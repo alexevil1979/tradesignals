@@ -1,6 +1,8 @@
 (() => {
     'use strict';
 
+    const RIGHT_OFFSET_BARS = 300;
+
     function createChart(container) {
         const chart = LightweightCharts.createChart(container, {
             layout: {
@@ -16,6 +18,7 @@
                 borderColor: '#30363d',
                 timeVisible: true,
                 secondsVisible: false,
+                rightOffset: RIGHT_OFFSET_BARS,
             },
             crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
         });
@@ -38,6 +41,20 @@
         window.addEventListener('resize', resize);
 
         return { chart, series, resize };
+    }
+
+    /** fitContent прижимает к правому краю — добавляем отступ в барах, как в TradingView. */
+    function applyRightOffset(chart, offsetBars = RIGHT_OFFSET_BARS) {
+        const ts = chart.timeScale();
+        ts.applyOptions({ rightOffset: offsetBars });
+        ts.fitContent();
+        const range = ts.getVisibleLogicalRange();
+        if (range) {
+            ts.setVisibleLogicalRange({
+                from: range.from,
+                to: range.to + offsetBars,
+            });
+        }
     }
 
     function createDashboard({ endpoint, containerSelector, priceSelector }) {
@@ -64,7 +81,7 @@
                 }
                 const candles = item.candles || [];
                 entry.series.setData(candles);
-                entry.chart.timeScale().fitContent();
+                applyRightOffset(entry.chart);
                 if (meta) {
                     meta.textContent = candles.length
                         ? `${candles.length} баров (все загруженные)`
@@ -104,7 +121,7 @@
             const payload = await response.json();
             const candles = payload.candles || [];
             entry.series.setData(candles);
-            entry.chart.timeScale().fitContent();
+            applyRightOffset(entry.chart);
             return candles.length;
         }
 
