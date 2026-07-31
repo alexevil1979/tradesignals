@@ -1,10 +1,37 @@
 .chart-host {
+    position: relative;
     width: 100%;
     height: 280px;
 }
 
 .chart-host-lg {
     height: 480px;
+}
+
+.chart-nav {
+    position: absolute;
+    left: 8px;
+    bottom: 28px;
+    z-index: 5;
+    display: flex;
+    gap: 4px;
+}
+
+.chart-nav-btn {
+    border: 1px solid #30363d;
+    background: rgba(13, 17, 23, 0.88);
+    color: #c9d1d9;
+    font-size: 0.72rem;
+    line-height: 1;
+    padding: 0.35rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.chart-nav-btn:hover {
+    background: #21262d;
+    color: #fff;
+    border-color: #58a6ff;
 }
 
 .card.bg-black {

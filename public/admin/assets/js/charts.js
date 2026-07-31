@@ -42,7 +42,50 @@
         resize();
         window.addEventListener('resize', resize);
 
+        attachChartNav(container, chart);
+
         return { chart, series, resize, container };
+    }
+
+    function scrollChartToEnd(chart) {
+        const ts = chart.timeScale();
+        ts.applyOptions({ rightOffset: RIGHT_OFFSET_BARS });
+        ts.scrollToRealTime();
+    }
+
+    function scrollChartToStart(chart) {
+        const ts = chart.timeScale();
+        const range = ts.getVisibleLogicalRange();
+        const span = range ? Math.max(range.to - range.from, 20) : 80;
+        ts.setVisibleLogicalRange({
+            from: 0,
+            to: span,
+        });
+    }
+
+    function attachChartNav(container, chart) {
+        if (container.querySelector('.chart-nav')) {
+            return;
+        }
+        const nav = document.createElement('div');
+        nav.className = 'chart-nav';
+        nav.innerHTML = `
+            <button type="button" class="chart-nav-btn" data-nav="start" title="К началу графика">« Начало</button>
+            <button type="button" class="chart-nav-btn" data-nav="end" title="К концу графика">Конец »</button>
+        `;
+        nav.addEventListener('mousedown', (event) => event.stopPropagation());
+        nav.addEventListener('dblclick', (event) => event.stopPropagation());
+        nav.querySelector('[data-nav="start"]')?.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            scrollChartToStart(chart);
+        });
+        nav.querySelector('[data-nav="end"]')?.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            scrollChartToEnd(chart);
+        });
+        container.appendChild(nav);
     }
 
     function applyDefaultView(chart) {
