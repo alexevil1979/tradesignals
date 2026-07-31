@@ -7,6 +7,7 @@ use App\Database\SettingsRepository;
 use App\Helpers\Intervals;
 use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
+use App\Strategy\LevelGridProcessor;
 use App\Strategy\SignalGridProcessor;
 use App\Strategy\SignalRepository;
 use App\Telegram\Bot;
@@ -84,18 +85,32 @@ try {
 
         if ($signalsSkipped !== 'busy') {
             try {
+                $signalRepo = new SignalRepository($pdo);
+                $candleRepo = new CandleRepository($pdo);
+                $telegram = new Bot($config['telegram'], $logger);
                 $processor = new SignalGridProcessor(
                     $settings,
-                    new CandleRepository($pdo),
+                    $candleRepo,
                     new CandleAnalyzer(),
-                    new SignalRepository($pdo),
-                    new Bot($config['telegram'], $logger),
+                    $signalRepo,
+                    $telegram,
                     $logger,
                 );
-                $signalsCreated = $processor->process($symbol);
+                $barCreated = $processor->process($symbol);
+                $levelProcessor = new LevelGridProcessor(
+                    $settings,
+                    $candleRepo,
+                    $signalRepo,
+                    $telegram,
+                    $logger,
+                );
+                $levelCreated = $levelProcessor->process($symbol);
+                $signalsCreated = $barCreated + $levelCreated;
                 $logger->info('Обработка матрицы сигналов с Dashboard.', [
                     'symbol' => $symbol,
                     'created' => $signalsCreated,
+                    'bars' => $barCreated,
+                    'levels' => $levelCreated,
                 ], 'cron');
             } finally {
                 if (is_resource($lock)) {

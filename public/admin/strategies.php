@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 use App\Auth\AdminAuth;
 use App\Database\SettingsRepository;
+use App\Strategy\CandleRepository;
+use App\Strategy\LevelGridConfig;
 use App\Strategy\SignalGridConfig;
 
 require dirname(__DIR__, 2) . '/bootstrap.php';
@@ -22,14 +24,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $flashType = 'danger';
     } else {
         $action = (string) ($_POST['action'] ?? 'save');
-        if ($action === 'reset') {
+        if ($action === 'reset_bars') {
             $grid = SignalGridConfig::defaults();
             $settings->set(SignalGridConfig::SETTING_KEY, json_encode($grid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
-            $flash = 'Таблица сигналов сброшена к значениям из Excel.';
+            $flash = 'Сетка баров сброшена к значениям из Excel.';
+        } elseif ($action === 'reset_levels') {
+            $levelGrid = LevelGridConfig::defaults();
+            $settings->set(LevelGridConfig::SETTING_KEY, json_encode($levelGrid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $flash = 'Сетка уровней очищена.';
         } else {
             $grid = SignalGridConfig::fromPost($_POST);
             $settings->set(SignalGridConfig::SETTING_KEY, json_encode($grid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
-            $flash = 'Таблица сигналов сохранена.';
+            $levelGrid = LevelGridConfig::fromPost($_POST);
+            $settings->set(LevelGridConfig::SETTING_KEY, json_encode($levelGrid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $flash = 'Стратегии сохранены.';
         }
     }
 }
@@ -49,8 +57,95 @@ $rowCount = max(array_map(
     SignalGridConfig::TIMEFRAMES
 ));
 
+$rawLevels = $settings->get(LevelGridConfig::SETTING_KEY);
+$decodedLevels = null;
+if (is_string($rawLevels) && $rawLevels !== '') {
+    try {
+        $decodedLevels = json_decode($rawLevels, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        $decodedLevels = null;
+    }
+}
+$levelGrid = LevelGridConfig::normalize($decodedLevels);
+
+$symbol = (string) $config['bybit']['symbol'];
+$lastPrice = null;
+try {
+    $m1 = (new CandleRepository($pdo))->latestConfirmed($symbol, '1', 1);
+    if ($m1 !== []) {
+        $lastPrice = (float) $m1[array_key_last($m1)]['close_price'];
+    }
+} catch (Throwable) {
+    $lastPrice = null;
+}
+
 $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
 $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UTF-8');
+$lastPriceLabel = $lastPrice !== null
+    ? htmlspecialchars(LevelGridConfig::formatPriceKey($lastPrice), ENT_QUOTES, 'UTF-8')
+    : '—';
+
+/**
+ * @param list<array<string, mixed>> $rows
+ * @param 'above'|'below' $side
+ */
+$renderLevelRows = static function (array $rows, string $side): void {
+    $prefix = $side === 'above' ? 'level_above' : 'level_below';
+    if ($rows === []) {
+        echo '<tr class="level-grid-empty"><td colspan="7" class="text-secondary small text-center py-3">Нет уровней. Сгенерируйте или добавьте вручную.</td></tr>';
+
+        return;
+    }
+    foreach ($rows as $i => $row) {
+        $name = $prefix . '[' . $i . ']';
+        ?>
+        <tr>
+            <td>
+                <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                       type="number" step="any" min="0"
+                       name="<?= $name ?>[price]"
+                       value="<?= htmlspecialchars((string) $row['price'], ENT_QUOTES, 'UTF-8') ?>">
+            </td>
+            <td class="text-center">
+                <input class="form-check-input" type="checkbox"
+                       name="<?= $name ?>[signal]" value="1"
+                       data-level-side="<?= $side ?>" data-field="signal"
+                    <?= !empty($row['signal']) ? 'checked' : '' ?>>
+            </td>
+            <td class="text-center">
+                <input class="form-check-input" type="checkbox"
+                       name="<?= $name ?>[order]" value="1"
+                       data-level-side="<?= $side ?>" data-field="order"
+                    <?= !empty($row['order']) ? 'checked' : '' ?>>
+            </td>
+            <td>
+                <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                       type="text" inputmode="decimal"
+                       name="<?= $name ?>[size]"
+                       value="<?= htmlspecialchars((string) $row['size'], ENT_QUOTES, 'UTF-8') ?>">
+            </td>
+            <td>
+                <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                       type="number" step="any"
+                       name="<?= $name ?>[reserve]"
+                       value="<?= htmlspecialchars((string) $row['reserve'], ENT_QUOTES, 'UTF-8') ?>">
+            </td>
+            <td>
+                <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                       type="number" step="any"
+                       name="<?= $name ?>[stop]"
+                       value="<?= htmlspecialchars((string) $row['stop'], ENT_QUOTES, 'UTF-8') ?>">
+            </td>
+            <td>
+                <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                       type="number" step="any"
+                       name="<?= $name ?>[profit]"
+                       value="<?= htmlspecialchars((string) $row['profit'], ENT_QUOTES, 'UTF-8') ?>">
+            </td>
+        </tr>
+        <?php
+    }
+};
 ?>
 <!doctype html>
 <html lang="ru" data-bs-theme="dark">
@@ -80,12 +175,10 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
             <h1 class="h3 mb-1">Стратегии</h1>
-            <p class="text-secondary mb-0">Таблица сигналов по таймфреймам (как в Excel). Уровень <strong>баров</strong> может быть от 1 и выше — сигнал при серии ≥ этого числа.</p>
+            <p class="text-secondary mb-0">Сетка баров и сетка уровней пробития. Сохранение применяется к обеим стратегиям.</p>
         </div>
         <div class="d-flex gap-2">
-            <button type="submit" form="signal-grid-form" name="action" value="save" class="btn btn-success">Сохранить</button>
-            <button type="submit" form="signal-grid-form" name="action" value="reset" class="btn btn-outline-warning"
-                    onclick="return confirm('Сбросить таблицу к значениям из Excel?');">Сбросить</button>
+            <button type="submit" form="strategies-form" name="action" value="save" class="btn btn-success">Сохранить всё</button>
         </div>
     </div>
 
@@ -93,206 +186,515 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
         <div class="alert alert-<?= htmlspecialchars($flashType, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($flash, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>
 
-    <form method="post" id="signal-grid-form">
+    <form method="post" id="strategies-form">
         <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
 
-        <div class="card bg-black border-secondary mb-3">
-            <div class="card-body py-3">
-                <div class="small text-secondary mb-2"><?= $minBodyNote ?></div>
-                <div class="row g-2 align-items-end">
-                    <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
-                        <div class="col-6 col-md-4 col-xl-2">
-                            <label class="form-label small text-secondary mb-1" for="min-body-<?= $tf ?>">мин. тело · <?= $tf ?></label>
-                            <input
-                                class="form-control form-control-sm bg-dark text-light border-secondary"
-                                type="number"
-                                step="any"
-                                min="0"
-                                id="min-body-<?= $tf ?>"
-                                name="min_body[<?= $tf ?>]"
-                                value="<?= htmlspecialchars((string) $grid['min_body'][$tf], ENT_QUOTES, 'UTF-8') ?>"
-                            >
+        <div class="accordion strategy-accordion" id="strategiesAccordion">
+            <div class="accordion-item bg-black border-secondary mb-3">
+                <h2 class="accordion-header">
+                    <button class="accordion-button bg-dark text-light" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#collapseBars"
+                            aria-expanded="true" aria-controls="collapseBars">
+                        Сетка баров
+                        <span class="badge text-bg-secondary ms-2 fw-normal">серия свечей</span>
+                    </button>
+                </h2>
+                <div id="collapseBars" class="accordion-collapse collapse show">
+                    <div class="accordion-body">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                            <p class="text-secondary small mb-0">Уровень <strong>баров</strong> от 1 и выше — сигнал при серии ≥ этого числа.</p>
+                            <button type="submit" name="action" value="reset_bars" class="btn btn-sm btn-outline-warning"
+                                    onclick="return confirm('Сбросить сетку баров к значениям из Excel?');">Сбросить сетку баров</button>
                         </div>
-                    <?php endforeach; ?>
+
+                        <div class="card bg-black border-secondary mb-3">
+                            <div class="card-body py-3">
+                                <div class="small text-secondary mb-2"><?= $minBodyNote ?></div>
+                                <div class="row g-2 align-items-end">
+                                    <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
+                                        <div class="col-6 col-md-4 col-xl-2">
+                                            <label class="form-label small text-secondary mb-1" for="min-body-<?= $tf ?>">мин. тело · <?= $tf ?></label>
+                                            <input
+                                                class="form-control form-control-sm bg-dark text-light border-secondary"
+                                                type="number"
+                                                step="any"
+                                                min="0"
+                                                id="min-body-<?= $tf ?>"
+                                                name="min_body[<?= $tf ?>]"
+                                                value="<?= htmlspecialchars((string) $grid['min_body'][$tf], ENT_QUOTES, 'UTF-8') ?>"
+                                            >
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card bg-black border-secondary">
+                            <div class="card-body p-0">
+                                <div class="table-responsive signal-grid-wrap">
+                                    <table class="table table-sm table-dark table-bordered mb-0 align-middle signal-grid">
+                                        <thead>
+                                        <tr>
+                                            <th class="signal-grid-sticky text-secondary" rowspan="2">баров</th>
+                                            <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
+                                                <th class="text-center text-info signal-grid-tf-toggle"
+                                                    data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                                    data-colspan-expanded="7"
+                                                    data-colspan-collapsed="2"
+                                                    colspan="7"
+                                                    title="Клик: свернуть/развернуть <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?></th>
+                                            <?php endforeach; ?>
+                                        </tr>
+                                        <tr>
+                                            <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
+                                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="bars">баров</th>
+                                                <th class="text-center small signal-grid-toggle"
+                                                    data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                                    data-field="signal"
+                                                    data-col="signal"
+                                                    title="Клик: вкл/выкл все сигналы <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>">сигнал</th>
+                                                <th class="text-center small signal-grid-toggle"
+                                                    data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                                    data-field="order"
+                                                    data-col="order"
+                                                    title="Клик: вкл/выкл все ордера <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>">ордер</th>
+                                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="size">размер</th>
+                                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="reserve">запас</th>
+                                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="stop">стоп</th>
+                                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="profit">профит</th>
+                                            <?php endforeach; ?>
+                                        </tr>
+                                        </thead>
+                                        <tbody>
+                                        <?php for ($i = 0; $i < $rowCount; $i++): ?>
+                                            <tr>
+                                                <th class="signal-grid-sticky text-secondary small">#<?= $i + 1 ?></th>
+                                                <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
+                                                    <?php
+                                                    $row = $grid['timeframes'][$tf][$i] ?? [
+                                                        'bars' => 1,
+                                                        'signal' => false,
+                                                        'order' => false,
+                                                        'size' => '0.001',
+                                                        'reserve' => 10,
+                                                        'stop' => 300,
+                                                        'profit' => 300,
+                                                    ];
+                                                    $prefix = 'tf[' . $tf . '][' . $i . ']';
+                                                    ?>
+                                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="bars">
+                                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                                                               type="number" min="1" step="1"
+                                                               name="<?= $prefix ?>[bars]"
+                                                               value="<?= (int) $row['bars'] ?>">
+                                                    </td>
+                                                    <td class="text-center" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="signal">
+                                                        <input class="form-check-input" type="checkbox"
+                                                               name="<?= $prefix ?>[signal]" value="1"
+                                                               data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                                               data-field="signal"
+                                                            <?= !empty($row['signal']) ? 'checked' : '' ?>
+                                                               title="сигнал">
+                                                    </td>
+                                                    <td class="text-center" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="order">
+                                                        <input class="form-check-input" type="checkbox"
+                                                               name="<?= $prefix ?>[order]" value="1"
+                                                               data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
+                                                               data-field="order"
+                                                            <?= !empty($row['order']) ? 'checked' : '' ?>
+                                                               title="ордер">
+                                                    </td>
+                                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="size">
+                                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                                                               type="text" inputmode="decimal"
+                                                               name="<?= $prefix ?>[size]"
+                                                               value="<?= htmlspecialchars((string) $row['size'], ENT_QUOTES, 'UTF-8') ?>">
+                                                    </td>
+                                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="reserve">
+                                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                                                               type="number" step="any"
+                                                               name="<?= $prefix ?>[reserve]"
+                                                               value="<?= htmlspecialchars((string) $row['reserve'], ENT_QUOTES, 'UTF-8') ?>">
+                                                    </td>
+                                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="stop">
+                                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                                                               type="number" step="any"
+                                                               name="<?= $prefix ?>[stop]"
+                                                               value="<?= htmlspecialchars((string) $row['stop'], ENT_QUOTES, 'UTF-8') ?>">
+                                                    </td>
+                                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="profit">
+                                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                                                               type="number" step="any"
+                                                               name="<?= $prefix ?>[profit]"
+                                                               value="<?= htmlspecialchars((string) $row['profit'], ENT_QUOTES, 'UTF-8') ?>">
+                                                    </td>
+                                                <?php endforeach; ?>
+                                            </tr>
+                                        <?php endfor; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <div class="card bg-black border-secondary">
-            <div class="card-body p-0">
-                <div class="table-responsive signal-grid-wrap">
-                    <table class="table table-sm table-dark table-bordered mb-0 align-middle signal-grid">
-                        <thead>
-                        <tr>
-                            <th class="signal-grid-sticky text-secondary" rowspan="2">баров</th>
-                            <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
-                                <th class="text-center text-info signal-grid-tf-toggle"
-                                    data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
-                                    data-colspan-expanded="7"
-                                    data-colspan-collapsed="2"
-                                    colspan="7"
-                                    title="Клик: свернуть/развернуть <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?></th>
-                            <?php endforeach; ?>
-                        </tr>
-                        <tr>
-                            <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
-                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="bars">баров</th>
-                                <th class="text-center small signal-grid-toggle"
-                                    data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
-                                    data-field="signal"
-                                    data-col="signal"
-                                    title="Клик: вкл/выкл все сигналы <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>">сигнал</th>
-                                <th class="text-center small signal-grid-toggle"
-                                    data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
-                                    data-field="order"
-                                    data-col="order"
-                                    title="Клик: вкл/выкл все ордера <?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>">ордер</th>
-                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="size">размер</th>
-                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="reserve">запас</th>
-                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="stop">стоп</th>
-                                <th class="text-center small" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="profit">профит</th>
-                            <?php endforeach; ?>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        <?php for ($i = 0; $i < $rowCount; $i++): ?>
-                            <tr>
-                                <th class="signal-grid-sticky text-secondary small">#<?= $i + 1 ?></th>
-                                <?php foreach (SignalGridConfig::TIMEFRAMES as $tf): ?>
-                                    <?php
-                                    $row = $grid['timeframes'][$tf][$i] ?? [
-                                        'bars' => 1,
-                                        'signal' => false,
-                                        'order' => false,
-                                        'size' => '0.001',
-                                        'reserve' => 10,
-                                        'stop' => 300,
-                                        'profit' => 300,
-                                    ];
-                                    $prefix = 'tf[' . $tf . '][' . $i . ']';
-                                    ?>
-                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="bars">
-                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
-                                               type="number" min="1" step="1"
-                                               name="<?= $prefix ?>[bars]"
-                                               value="<?= (int) $row['bars'] ?>">
-                                    </td>
-                                    <td class="text-center" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="signal">
-                                        <input class="form-check-input" type="checkbox"
-                                               name="<?= $prefix ?>[signal]" value="1"
-                                               data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
-                                               data-field="signal"
-                                            <?= !empty($row['signal']) ? 'checked' : '' ?>
-                                               title="сигнал">
-                                    </td>
-                                    <td class="text-center" data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="order">
-                                        <input class="form-check-input" type="checkbox"
-                                               name="<?= $prefix ?>[order]" value="1"
-                                               data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>"
-                                               data-field="order"
-                                            <?= !empty($row['order']) ? 'checked' : '' ?>
-                                               title="ордер">
-                                    </td>
-                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="size">
-                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
-                                               type="text" inputmode="decimal"
-                                               name="<?= $prefix ?>[size]"
-                                               value="<?= htmlspecialchars((string) $row['size'], ENT_QUOTES, 'UTF-8') ?>">
-                                    </td>
-                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="reserve">
-                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
-                                               type="number" step="any"
-                                               name="<?= $prefix ?>[reserve]"
-                                               value="<?= htmlspecialchars((string) $row['reserve'], ENT_QUOTES, 'UTF-8') ?>">
-                                    </td>
-                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="stop">
-                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
-                                               type="number" step="any"
-                                               name="<?= $prefix ?>[stop]"
-                                               value="<?= htmlspecialchars((string) $row['stop'], ENT_QUOTES, 'UTF-8') ?>">
-                                    </td>
-                                    <td data-tf="<?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?>" data-col="profit">
-                                        <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
-                                               type="number" step="any"
-                                               name="<?= $prefix ?>[profit]"
-                                               value="<?= htmlspecialchars((string) $row['profit'], ENT_QUOTES, 'UTF-8') ?>">
-                                    </td>
-                                <?php endforeach; ?>
-                            </tr>
-                        <?php endfor; ?>
-                        </tbody>
-                    </table>
+            <div class="accordion-item bg-black border-secondary">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed bg-dark text-light" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#collapseLevels"
+                            aria-expanded="false" aria-controls="collapseLevels">
+                        Сетка уровней
+                        <span class="badge text-bg-secondary ms-2 fw-normal">пробои цены</span>
+                    </button>
+                </h2>
+                <div id="collapseLevels" class="accordion-collapse collapse">
+                    <div class="accordion-body">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                            <p class="text-secondary small mb-0">
+                                Пробой уровня по закрытию M1: сверху → LONG, снизу → SHORT.
+                                Текущая цена <?= htmlspecialchars($symbol, ENT_QUOTES, 'UTF-8') ?>: <strong class="text-info"><?= $lastPriceLabel ?></strong>
+                            </p>
+                            <div class="d-flex gap-2 align-items-center">
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch"
+                                           id="level_enabled" name="level_enabled" value="1"
+                                        <?= !empty($levelGrid['enabled']) ? 'checked' : '' ?>>
+                                    <label class="form-check-label small" for="level_enabled">включена</label>
+                                </div>
+                                <button type="submit" name="action" value="reset_levels" class="btn btn-sm btn-outline-warning"
+                                        onclick="return confirm('Очистить все уровни?');">Очистить уровни</button>
+                            </div>
+                        </div>
+
+                        <div class="card bg-black border-secondary mb-3">
+                            <div class="card-body py-3">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-6 col-md-3 col-xl-2">
+                                        <label class="form-label small text-secondary mb-1" for="level-base">базовая цена</label>
+                                        <input class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               type="number" step="any" id="level-base"
+                                               value="<?= $lastPrice !== null ? htmlspecialchars(LevelGridConfig::formatPriceKey($lastPrice), ENT_QUOTES, 'UTF-8') : '' ?>">
+                                    </div>
+                                    <div class="col-6 col-md-2 col-xl-1">
+                                        <label class="form-label small text-secondary mb-1" for="level-step">шаг</label>
+                                        <input class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               type="number" step="any" min="0.01" id="level-step" value="100">
+                                    </div>
+                                    <div class="col-6 col-md-2 col-xl-1">
+                                        <label class="form-label small text-secondary mb-1" for="level-count-above">сверху</label>
+                                        <input class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               type="number" min="0" max="50" step="1" id="level-count-above" value="5">
+                                    </div>
+                                    <div class="col-6 col-md-2 col-xl-1">
+                                        <label class="form-label small text-secondary mb-1" for="level-count-below">снизу</label>
+                                        <input class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               type="number" min="0" max="50" step="1" id="level-count-below" value="5">
+                                    </div>
+                                    <div class="col-12 col-md-4 col-xl-3 d-flex gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-info" id="level-generate">Сгенерировать</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="level-add-above">+ сверху</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="level-add-below">+ снизу</button>
+                                    </div>
+                                </div>
+                                <div class="small text-secondary mt-2">Генерация заменяет текущие уровни. Не забудьте сохранить.</div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-lg-6">
+                                <div class="card bg-black border-secondary h-100">
+                                    <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+                                        <span class="text-success">Уровни сверху <span class="text-secondary small">(пробой вверх → LONG)</span></span>
+                                    </div>
+                                    <div class="card-body p-0">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm table-dark table-bordered mb-0 align-middle level-grid" id="level-table-above">
+                                                <thead>
+                                                <tr>
+                                                    <th class="text-center small">цена</th>
+                                                    <th class="text-center small level-grid-toggle" data-level-side="above" data-field="signal" title="вкл/выкл все">сигнал</th>
+                                                    <th class="text-center small level-grid-toggle" data-level-side="above" data-field="order" title="вкл/выкл все">ордер</th>
+                                                    <th class="text-center small">размер</th>
+                                                    <th class="text-center small">запас</th>
+                                                    <th class="text-center small">стоп</th>
+                                                    <th class="text-center small">профит</th>
+                                                </tr>
+                                                </thead>
+                                                <tbody id="level-body-above">
+                                                <?php $renderLevelRows($levelGrid['above'], 'above'); ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-lg-6">
+                                <div class="card bg-black border-secondary h-100">
+                                    <div class="card-header border-secondary">
+                                        <span class="text-danger">Уровни снизу <span class="text-secondary small">(пробой вниз → SHORT)</span></span>
+                                    </div>
+                                    <div class="card-body p-0">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm table-dark table-bordered mb-0 align-middle level-grid" id="level-table-below">
+                                                <thead>
+                                                <tr>
+                                                    <th class="text-center small">цена</th>
+                                                    <th class="text-center small level-grid-toggle" data-level-side="below" data-field="signal" title="вкл/выкл все">сигнал</th>
+                                                    <th class="text-center small level-grid-toggle" data-level-side="below" data-field="order" title="вкл/выкл все">ордер</th>
+                                                    <th class="text-center small">размер</th>
+                                                    <th class="text-center small">запас</th>
+                                                    <th class="text-center small">стоп</th>
+                                                    <th class="text-center small">профит</th>
+                                                </tr>
+                                                </thead>
+                                                <tbody id="level-body-below">
+                                                <?php $renderLevelRows($levelGrid['below'], 'below'); ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </form>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     (() => {
         const COLLAPSE_KEY = 'tradesignals.signalGridCollapsed.v1';
+        const ACCORDION_KEY = 'tradesignals.strategiesAccordion.v1';
         const COLLAPSE_COLS = ['bars', 'size', 'reserve', 'stop', 'profit'];
         const table = document.querySelector('.signal-grid');
-        if (!table) {
-            return;
-        }
 
-        const readCollapsed = () => {
+        const readJson = (key, fallback) => {
             try {
-                const raw = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}');
-                return raw && typeof raw === 'object' ? raw : {};
+                const raw = JSON.parse(localStorage.getItem(key) || 'null');
+                return raw && typeof raw === 'object' ? raw : fallback;
             } catch (_error) {
-                return {};
+                return fallback;
             }
         };
-
-        const writeCollapsed = (map) => {
+        const writeJson = (key, value) => {
             try {
-                localStorage.setItem(COLLAPSE_KEY, JSON.stringify(map));
+                localStorage.setItem(key, JSON.stringify(value));
             } catch (_error) {
                 // ignore
             }
         };
 
-        const applyTfCollapse = (tf, collapsed) => {
-            const className = `tf-collapsed-${tf}`;
-            table.classList.toggle(className, collapsed);
-
-            const header = table.querySelector(`.signal-grid-tf-toggle[data-tf="${tf}"]`);
-            if (header) {
-                const expanded = Number(header.dataset.colspanExpanded || 7);
-                const collapsedCols = Number(header.dataset.colspanCollapsed || 2);
-                header.colSpan = collapsed ? collapsedCols : expanded;
-                header.classList.toggle('is-collapsed', collapsed);
-            }
-
-            COLLAPSE_COLS.forEach((col) => {
-                table.querySelectorAll(`[data-tf="${tf}"][data-col="${col}"]`).forEach((cell) => {
-                    cell.hidden = collapsed;
+        // Запомнить состояние секций стратегий.
+        const accordion = document.getElementById('strategiesAccordion');
+        if (accordion) {
+            const saved = readJson(ACCORDION_KEY, { collapseBars: true, collapseLevels: false });
+            ['collapseBars', 'collapseLevels'].forEach((id) => {
+                const pane = document.getElementById(id);
+                const btn = accordion.querySelector(`[data-bs-target="#${id}"]`);
+                if (!pane || !btn) {
+                    return;
+                }
+                // bars по умолчанию открыта, levels — закрыта
+                const shouldOpen = id === 'collapseBars'
+                    ? saved[id] !== false
+                    : saved[id] === true;
+                pane.classList.toggle('show', shouldOpen);
+                btn.classList.toggle('collapsed', !shouldOpen);
+                btn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+            });
+            accordion.querySelectorAll('.accordion-collapse').forEach((pane) => {
+                pane.addEventListener('shown.bs.collapse', () => {
+                    const state = readJson(ACCORDION_KEY, {});
+                    state[pane.id] = true;
+                    writeJson(ACCORDION_KEY, state);
+                });
+                pane.addEventListener('hidden.bs.collapse', () => {
+                    const state = readJson(ACCORDION_KEY, {});
+                    state[pane.id] = false;
+                    writeJson(ACCORDION_KEY, state);
                 });
             });
+        }
+
+        if (table) {
+            const applyTfCollapse = (tf, collapsed) => {
+                table.classList.toggle(`tf-collapsed-${tf}`, collapsed);
+                const header = table.querySelector(`.signal-grid-tf-toggle[data-tf="${tf}"]`);
+                if (header) {
+                    const expanded = Number(header.dataset.colspanExpanded || 7);
+                    const collapsedCols = Number(header.dataset.colspanCollapsed || 2);
+                    header.colSpan = collapsed ? collapsedCols : expanded;
+                    header.classList.toggle('is-collapsed', collapsed);
+                }
+                COLLAPSE_COLS.forEach((col) => {
+                    table.querySelectorAll(`[data-tf="${tf}"][data-col="${col}"]`).forEach((cell) => {
+                        cell.hidden = collapsed;
+                    });
+                });
+            };
+
+            let collapsedMap = readJson(COLLAPSE_KEY, {});
+            document.querySelectorAll('.signal-grid-tf-toggle').forEach((header) => {
+                const tf = header.dataset.tf;
+                applyTfCollapse(tf, !!collapsedMap[tf]);
+                header.addEventListener('click', () => {
+                    collapsedMap = readJson(COLLAPSE_KEY, {});
+                    collapsedMap[tf] = !collapsedMap[tf];
+                    writeJson(COLLAPSE_KEY, collapsedMap);
+                    applyTfCollapse(tf, !!collapsedMap[tf]);
+                });
+            });
+
+            document.querySelectorAll('.signal-grid-toggle').forEach((header) => {
+                header.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    const tf = header.dataset.tf;
+                    const field = header.dataset.field;
+                    const boxes = Array.from(
+                        document.querySelectorAll(
+                            `.signal-grid input[type="checkbox"][data-tf="${tf}"][data-field="${field}"]`
+                        )
+                    );
+                    if (!boxes.length) {
+                        return;
+                    }
+                    const turnOn = boxes.some((box) => !box.checked);
+                    boxes.forEach((box) => {
+                        box.checked = turnOn;
+                    });
+                });
+            });
+        }
+
+        const fmt = (value) => {
+            const n = Number(value);
+            if (!Number.isFinite(n)) {
+                return '';
+            }
+            return String(Number(n.toFixed(8)));
         };
 
-        let collapsedMap = readCollapsed();
-        document.querySelectorAll('.signal-grid-tf-toggle').forEach((header) => {
-            const tf = header.dataset.tf;
-            applyTfCollapse(tf, !!collapsedMap[tf]);
+        const levelRowHtml = (side, index, row) => {
+            const prefix = side === 'above' ? 'level_above' : 'level_below';
+            const name = `${prefix}[${index}]`;
+            const checked = (on) => (on ? 'checked' : '');
+            return `<tr>
+                <td><input class="form-control form-control-sm bg-dark text-light border-secondary text-center" type="number" step="any" min="0" name="${name}[price]" value="${row.price}"></td>
+                <td class="text-center"><input class="form-check-input" type="checkbox" name="${name}[signal]" value="1" data-level-side="${side}" data-field="signal" ${checked(row.signal)}></td>
+                <td class="text-center"><input class="form-check-input" type="checkbox" name="${name}[order]" value="1" data-level-side="${side}" data-field="order" ${checked(row.order)}></td>
+                <td><input class="form-control form-control-sm bg-dark text-light border-secondary text-center" type="text" inputmode="decimal" name="${name}[size]" value="${row.size}"></td>
+                <td><input class="form-control form-control-sm bg-dark text-light border-secondary text-center" type="number" step="any" name="${name}[reserve]" value="${row.reserve}"></td>
+                <td><input class="form-control form-control-sm bg-dark text-light border-secondary text-center" type="number" step="any" name="${name}[stop]" value="${row.stop}"></td>
+                <td><input class="form-control form-control-sm bg-dark text-light border-secondary text-center" type="number" step="any" name="${name}[profit]" value="${row.profit}"></td>
+            </tr>`;
+        };
 
-            header.addEventListener('click', () => {
-                collapsedMap = readCollapsed();
-                collapsedMap[tf] = !collapsedMap[tf];
-                writeCollapsed(collapsedMap);
-                applyTfCollapse(tf, !!collapsedMap[tf]);
-            });
+        const defaultLevel = (price) => ({
+            price: fmt(price),
+            signal: true,
+            order: false,
+            size: '0.001',
+            reserve: 10,
+            stop: 300,
+            profit: 300,
         });
 
-        document.querySelectorAll('.signal-grid-toggle').forEach((header) => {
-            header.addEventListener('click', (event) => {
-                event.stopPropagation();
-                const tf = header.dataset.tf;
+        const fillBody = (side, rows) => {
+            const body = document.getElementById(side === 'above' ? 'level-body-above' : 'level-body-below');
+            if (!body) {
+                return;
+            }
+            if (!rows.length) {
+                body.innerHTML = '<tr class="level-grid-empty"><td colspan="7" class="text-secondary small text-center py-3">Нет уровней. Сгенерируйте или добавьте вручную.</td></tr>';
+                return;
+            }
+            body.innerHTML = rows.map((row, index) => levelRowHtml(side, index, row)).join('');
+        };
+
+        const readBodyRows = (side) => {
+            const body = document.getElementById(side === 'above' ? 'level-body-above' : 'level-body-below');
+            if (!body) {
+                return [];
+            }
+            return Array.from(body.querySelectorAll('tr')).map((tr) => {
+                const inputs = tr.querySelectorAll('input');
+                if (inputs.length < 7) {
+                    return null;
+                }
+                return {
+                    price: inputs[0].value,
+                    signal: inputs[1].checked,
+                    order: inputs[2].checked,
+                    size: inputs[3].value || '0.001',
+                    reserve: inputs[4].value || 10,
+                    stop: inputs[5].value || 300,
+                    profit: inputs[6].value || 300,
+                };
+            }).filter(Boolean);
+        };
+
+        document.getElementById('level-generate')?.addEventListener('click', () => {
+            const base = Number(document.getElementById('level-base')?.value);
+            const step = Number(document.getElementById('level-step')?.value);
+            const countAbove = Math.max(0, Math.min(50, Number(document.getElementById('level-count-above')?.value || 0)));
+            const countBelow = Math.max(0, Math.min(50, Number(document.getElementById('level-count-below')?.value || 0)));
+            if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(step) || step <= 0) {
+                alert('Укажите корректную базовую цену и шаг.');
+                return;
+            }
+            const above = [];
+            for (let i = 1; i <= countAbove; i += 1) {
+                above.push(defaultLevel(base + step * i));
+            }
+            const below = [];
+            for (let i = 1; i <= countBelow; i += 1) {
+                below.push(defaultLevel(base - step * i));
+            }
+            fillBody('above', above);
+            fillBody('below', below);
+        });
+
+        document.getElementById('level-add-above')?.addEventListener('click', () => {
+            const rows = readBodyRows('above');
+            const base = Number(document.getElementById('level-base')?.value);
+            const step = Number(document.getElementById('level-step')?.value) || 100;
+            let next = Number.isFinite(base) ? base + step : step;
+            if (rows.length) {
+                const last = Number(rows[rows.length - 1].price);
+                if (Number.isFinite(last)) {
+                    next = last + step;
+                }
+            }
+            rows.push(defaultLevel(next));
+            fillBody('above', rows);
+        });
+
+        document.getElementById('level-add-below')?.addEventListener('click', () => {
+            const rows = readBodyRows('below');
+            const base = Number(document.getElementById('level-base')?.value);
+            const step = Number(document.getElementById('level-step')?.value) || 100;
+            let next = Number.isFinite(base) ? base - step : step;
+            if (rows.length) {
+                const last = Number(rows[rows.length - 1].price);
+                if (Number.isFinite(last)) {
+                    next = last - step;
+                }
+            }
+            rows.push(defaultLevel(next));
+            fillBody('below', rows);
+        });
+
+        document.querySelectorAll('.level-grid-toggle').forEach((header) => {
+            header.addEventListener('click', () => {
+                const side = header.dataset.levelSide;
                 const field = header.dataset.field;
                 const boxes = Array.from(
                     document.querySelectorAll(
-                        `.signal-grid input[type="checkbox"][data-tf="${tf}"][data-field="${field}"]`
+                        `input[type="checkbox"][data-level-side="${side}"][data-field="${field}"]`
                     )
                 );
                 if (!boxes.length) {

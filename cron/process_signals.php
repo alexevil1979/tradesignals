@@ -12,6 +12,7 @@ use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
 use App\Strategy\GridManager;
 use App\Strategy\RuleEngine;
+use App\Strategy\LevelGridProcessor;
 use App\Strategy\SignalGridConfig;
 use App\Strategy\SignalGridProcessor;
 use App\Strategy\SignalRepository;
@@ -82,11 +83,20 @@ $gridProcessor = new SignalGridProcessor(
     $logger,
 );
 $gridCreated = $gridProcessor->process($symbol);
+$levelCreated = (new LevelGridProcessor(
+    $settings,
+    $candleRepository,
+    $signalRepository,
+    $telegram,
+    $logger,
+))->process($symbol);
 $logger->info('Обработка матрицы сигналов завершена.', [
     'symbol' => $symbol,
-    'created' => $gridCreated,
+    'created' => $gridCreated + $levelCreated,
+    'bars' => $gridCreated,
+    'levels' => $levelCreated,
 ], 'cron');
-echo "Матрица сигналов: создано {$gridCreated}.\n";
+echo "Матрица сигналов: бары {$gridCreated}, уровни {$levelCreated}.\n";
 
 $strategies = (new StrategyRepository($pdo))->active();
 if (count($strategies) > 1) {

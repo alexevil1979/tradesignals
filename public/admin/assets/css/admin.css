@@ -120,3 +120,53 @@
     font-size: 0.75em;
     opacity: 0.55;
 }
+
+.strategy-accordion .accordion-button {
+    box-shadow: none;
+}
+
+.strategy-accordion .accordion-button:not(.collapsed) {
+    background-color: #161b22 !important;
+    color: #f0f6fc !important;
+}
+
+.strategy-accordion .accordion-button.collapsed {
+    background-color: #0d1117 !important;
+}
+
+.strategy-accordion .accordion-item {
+    overflow: hidden;
+}
+
+.level-grid {
+    font-size: 0.8rem;
+}
+
+.level-grid th,
+.level-grid td {
+    white-space: nowrap;
+    vertical-align: middle;
+    padding: 0.35rem 0.4rem;
+}
+
+.level-grid .form-control-sm {
+    min-width: 4.2rem;
+    padding: 0.15rem 0.3rem;
+    font-size: 0.8rem;
+}
+
+.level-grid .form-check-input {
+    margin: 0;
+    cursor: pointer;
+}
+
+.level-grid-toggle {
+    cursor: pointer;
+    user-select: none;
+    text-decoration: underline dotted;
+    text-underline-offset: 0.2em;
+}
+
+.level-grid-toggle:hover {
+    color: #6ea8fe !important;
+}
