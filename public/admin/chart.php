@@ -18,6 +18,7 @@ if (!isset($intervals[$active])) {
 $symbol = htmlspecialchars($config['bybit']['symbol'], ENT_QUOTES, 'UTF-8');
 $category = htmlspecialchars((string) $config['bybit']['category'], ENT_QUOTES, 'UTF-8');
 $marketLabel = $category === 'linear' ? 'USDT Perpetual' : $category;
+$csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
 ?>
 <!doctype html>
 <html lang="ru" data-bs-theme="dark">
@@ -63,6 +64,7 @@ $marketLabel = $category === 'linear' ? 'USDT Perpetual' : $category;
         <div class="card-header border-secondary d-flex justify-content-between">
             <span><?= htmlspecialchars($active, ENT_QUOTES, 'UTF-8') ?></span>
             <small class="text-secondary" id="chart-count">загрузка…</small>
+            <span class="badge text-bg-secondary ms-2" id="quotes-refresh-status">автообновление 60с</span>
         </div>
         <div class="card-body p-2">
             <div class="chart-host chart-host-lg" id="main-chart"></div>
@@ -77,11 +79,23 @@ $marketLabel = $category === 'linear' ? 'USDT Perpetual' : $category;
             endpoint: '/api/candles.php?interval=<?= rawurlencode($active) ?>&limit=all',
             containerId: 'main-chart',
         });
-        const count = await chart.load();
-        const meta = document.getElementById('chart-count');
-        if (meta) {
-            meta.textContent = count ? `${count} баров` : 'нет данных — запустите fetch_candles';
-        }
+
+        const updateCount = async () => {
+            const count = await chart.load();
+            const meta = document.getElementById('chart-count');
+            if (meta) {
+                meta.textContent = count ? `${count} баров (все загруженные)` : 'нет данных — запустите fetch_candles';
+            }
+        };
+
+        const refreshQuotes = window.TradeSignalsCharts.createQuotesAutoRefresh({
+            refreshEndpoint: '/api/refresh_quotes.php',
+            csrfToken: '<?= $csrfToken ?>',
+            statusSelector: '#quotes-refresh-status',
+            intervalMs: 60_000,
+            onAfterRefresh: updateCount,
+        });
+        refreshQuotes.start();
     });
 </script>
 </body>

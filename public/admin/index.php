@@ -14,6 +14,7 @@ $symbol = htmlspecialchars($config['bybit']['symbol'], ENT_QUOTES, 'UTF-8');
 $category = htmlspecialchars((string) $config['bybit']['category'], ENT_QUOTES, 'UTF-8');
 $marketLabel = $category === 'linear' ? 'USDT Perpetual' : $category;
 $intervals = Intervals::chartMap();
+$csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
 ?>
 <!doctype html>
 <html lang="ru" data-bs-theme="dark">
@@ -54,6 +55,7 @@ $intervals = Intervals::chartMap();
             <?php if (!empty($config['bybit']['testnet'])): ?>
                 <span class="badge text-bg-warning" title="Торговые ордера могут идти в testnet">ORDERS TESTNET</span>
             <?php endif; ?>
+            <span id="quotes-refresh-status" class="badge text-bg-secondary">автообновление 60с</span>
             <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
             <button type="button" class="btn btn-outline-light btn-sm" id="refresh-charts">Обновить</button>
         </div>
@@ -111,9 +113,17 @@ $intervals = Intervals::chartMap();
             containerSelector: '.chart-host',
             priceSelector: '#last-price',
         });
-        dashboard.load();
-        document.getElementById('refresh-charts')?.addEventListener('click', () => dashboard.load());
-        setInterval(() => dashboard.load(), 60_000);
+
+        const refreshQuotes = window.TradeSignalsCharts.createQuotesAutoRefresh({
+            refreshEndpoint: '/api/refresh_quotes.php',
+            csrfToken: '<?= $csrfToken ?>',
+            statusSelector: '#quotes-refresh-status',
+            intervalMs: 60_000,
+            onAfterRefresh: () => dashboard.load(),
+        });
+
+        refreshQuotes.start();
+        document.getElementById('refresh-charts')?.addEventListener('click', () => refreshQuotes.tick(true));
     });
 </script>
 </body>

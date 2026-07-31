@@ -111,5 +111,73 @@
         return { load };
     }
 
-    window.TradeSignalsCharts = { createDashboard, createSingleChart };
+    function createQuotesAutoRefresh({
+        refreshEndpoint,
+        csrfToken,
+        statusSelector,
+        intervalMs = 60_000,
+        onAfterRefresh,
+    }) {
+        let busy = false;
+        let timerId = null;
+        const statusEl = statusSelector ? document.querySelector(statusSelector) : null;
+
+        const setStatus = (text, tone = 'secondary') => {
+            if (!statusEl) {
+                return;
+            }
+            statusEl.className = `badge text-bg-${tone}`;
+            statusEl.textContent = text;
+        };
+
+        async function tick(manual = false) {
+            if (busy) {
+                return;
+            }
+            busy = true;
+            setStatus(manual ? 'обновление…' : 'синхронизация…', 'info');
+            try {
+                const response = await fetch(refreshEndpoint, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `csrf_token=${encodeURIComponent(csrfToken)}`,
+                });
+                const payload = await response.json();
+                if (!response.ok || !payload.ok) {
+                    throw new Error(payload.error || 'Ошибка обновления котировок');
+                }
+                if (typeof onAfterRefresh === 'function') {
+                    await onAfterRefresh(payload);
+                }
+                const now = new Date();
+                const stamp = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                setStatus(`обновлено ${stamp} · след. через 60с`, 'success');
+            } catch (error) {
+                setStatus(`ошибка обновления`, 'danger');
+                console.error(error);
+            } finally {
+                busy = false;
+            }
+        }
+
+        function start() {
+            tick(true);
+            timerId = window.setInterval(() => tick(false), intervalMs);
+        }
+
+        function stop() {
+            if (timerId !== null) {
+                window.clearInterval(timerId);
+                timerId = null;
+            }
+        }
+
+        return { start, stop, tick };
+    }
+
+    window.TradeSignalsCharts = { createDashboard, createSingleChart, createQuotesAutoRefresh };
 })();
