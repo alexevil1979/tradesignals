@@ -77,6 +77,15 @@ final class SignalGridProcessor
             return 0;
         }
 
+        $lastCandle = $candles[array_key_last($candles)];
+        $candleOpenTime = (string) $lastCandle['open_time'];
+
+        // Сообщение только после полного закрытия свечи и только в окне сразу после закрытия
+        // (M1 ≈ после :59 сек минуты, H1 ≈ после :59 минуты часа и т.д.).
+        if (!$this->isFreshlyClosedCandle($candleOpenTime, $intervalCode)) {
+            return 0;
+        }
+
         $minBody = (float) ($grid['min_body'][$tf] ?? 0);
         $sequence = $this->analyzer->currentSequence($candles, $minBody);
         if (($sequence['count'] ?? 0) <= 0 || ($sequence['direction'] ?? null) === null) {
@@ -86,7 +95,6 @@ final class SignalGridProcessor
         $count = (int) $sequence['count'];
         $direction = (string) $sequence['direction'];
         $side = $direction === 'up' ? 'Sell' : 'Buy';
-        $lastCandle = $candles[array_key_last($candles)];
         $firstOpen = (float) ($sequence['first_open'] ?? 0);
         $lastClose = (float) ($sequence['last_close'] ?? $lastCandle['close_price']);
         $diff = (float) ($sequence['diff'] ?? ($lastClose - $firstOpen));
@@ -123,16 +131,17 @@ final class SignalGridProcessor
                 'first_open' => $firstOpen,
                 'last_close' => $lastClose,
                 'diff' => $diff,
+                'candle_closed_at' => $this->candleCloseTimeUtc($candleOpenTime, $intervalCode),
                 'telegram_text' => $message,
             ];
 
-            $signalId = $this->signals->createOnce(
+            $signalId = $this->signals->createOnceForClosedCandle(
                 null,
                 $symbol,
                 $side,
                 $signalType,
                 $count,
-                (string) $lastCandle['open_time'],
+                $candleOpenTime,
                 (string) $lastCandle['close_price'],
                 $payload,
             );
@@ -143,13 +152,14 @@ final class SignalGridProcessor
 
             $created++;
             $this->logger->info(
-                'Создан сигнал по матрице.',
+                'Создан сигнал по закрытой свече.',
                 [
                     'signal_id' => $signalId,
                     'tf' => $tf,
                     'direction' => $direction,
                     'bars' => $count,
                     'side' => $side,
+                    'candle_open_time' => $candleOpenTime,
                     'price' => $lastCandle['close_price'],
                 ],
                 'trading'
@@ -159,13 +169,14 @@ final class SignalGridProcessor
                 'signal_id' => $signalId,
                 'tf' => $tf,
                 'symbol' => $symbol,
+                'candle_open_time' => $candleOpenTime,
             ]);
             if ($sent) {
                 $this->signals->markTelegramSent($signalId);
             } else {
                 $this->logger->error(
                     'Не удалось отправить сигнал в Telegram.',
-                    ['signal_id' => $signalId, 'tf' => $tf],
+                    ['signal_id' => $signalId, 'tf' => $tf, 'candle_open_time' => $candleOpenTime],
                     'telegram'
                 );
             }
@@ -180,6 +191,40 @@ final class SignalGridProcessor
         }
 
         return $created;
+    }
+
+    /**
+     * Свеча полностью закрыта и закрытие было недавно (окно под минутный cron).
+     * H1: после конца часа (~:00 следующей), не во время формирования.
+     */
+    private function isFreshlyClosedCandle(string $openTime, string $intervalCode, ?int $now = null): bool
+    {
+        $now = $now ?? time();
+        $openTs = strtotime($openTime . ' UTC');
+        if ($openTs === false) {
+            return false;
+        }
+
+        $duration = Intervals::durationSeconds($intervalCode);
+        $closeTs = $openTs + $duration;
+        if ($now < $closeTs) {
+            return false;
+        }
+
+        // Окно после закрытия: минимум 2 минуты, максимум 5 минут (несколько тиков cron).
+        $window = max(120, min(300, $duration));
+
+        return ($now - $closeTs) < $window;
+    }
+
+    private function candleCloseTimeUtc(string $openTime, string $intervalCode): string
+    {
+        $openTs = strtotime($openTime . ' UTC');
+        if ($openTs === false) {
+            return $openTime;
+        }
+
+        return gmdate('Y-m-d H:i:s', $openTs + Intervals::durationSeconds($intervalCode));
     }
 
     private function retryPendingTelegram(): void

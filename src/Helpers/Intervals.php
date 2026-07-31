@@ -23,4 +23,15 @@ final class Intervals
     {
         return array_values(self::chartMap());
     }
+
+    /** Длительность интервала в секундах. */
+    public static function durationSeconds(string $intervalCode): int
+    {
+        return match ($intervalCode) {
+            'D' => 86_400,
+            'W' => 604_800,
+            'M' => 2_592_000,
+            default => max(1, (int) $intervalCode) * 60,
+        };
+    }
 }
