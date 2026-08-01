@@ -89,13 +89,17 @@ $rangeAlert = RangeAlertConfig::normalize($decodedRange);
 
 $symbol = (string) $config['bybit']['symbol'];
 $lastPrice = null;
+$range12h = null;
 try {
-    $m1 = (new CandleRepository($pdo))->latestConfirmed($symbol, '1', 1);
+    $candleRepo = new CandleRepository($pdo);
+    $m1 = $candleRepo->latestConfirmed($symbol, '1', 1);
     if ($m1 !== []) {
         $lastPrice = (float) $m1[array_key_last($m1)]['close_price'];
     }
+    $range12h = $candleRepo->extremumLastHours($symbol, '1', 12);
 } catch (Throwable) {
     $lastPrice = null;
+    $range12h = null;
 }
 
 $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
@@ -103,6 +107,12 @@ $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UT
 $lastPriceLabel = $lastPrice !== null
     ? htmlspecialchars(LevelGridConfig::formatPriceKey($lastPrice), ENT_QUOTES, 'UTF-8')
     : '—';
+$low12Label = $range12h !== null
+    ? htmlspecialchars(RangeAlertConfig::formatPrice($range12h['low']), ENT_QUOTES, 'UTF-8')
+    : null;
+$high12Label = $range12h !== null
+    ? htmlspecialchars(RangeAlertConfig::formatPrice($range12h['high']), ENT_QUOTES, 'UTF-8')
+    : null;
 
 /**
  * @param list<array<string, mixed>> $rows
@@ -536,7 +546,19 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                                id="range_notify_count" name="range_notify_count"
                                                value="<?= (int) $rangeAlert['notify_count'] ?>">
                                     </div>
-                                    <div class="col-6 col-md-3 col-xl-2">
+                                    <div class="col-12 col-md-6 col-xl-4 d-flex flex-wrap gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" id="range-set-low-12h"
+                                            <?= $low12Label === null ? 'disabled' : '' ?>
+                                                data-value="<?= $low12Label ?? '' ?>"
+                                                title="Подставить low за последние 12 часов">
+                                            Low 12ч<?= $low12Label !== null ? ': ' . $low12Label : '' ?>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-success" id="range-set-high-12h"
+                                            <?= $high12Label === null ? 'disabled' : '' ?>
+                                                data-value="<?= $high12Label ?? '' ?>"
+                                                title="Подставить high за последние 12 часов">
+                                            High 12ч<?= $high12Label !== null ? ': ' . $high12Label : '' ?>
+                                        </button>
                                         <button type="button" class="btn btn-sm btn-outline-info" id="range-fill-from-price"
                                                 data-price="<?= $lastPrice !== null ? htmlspecialchars(RangeAlertConfig::formatPrice($lastPrice), ENT_QUOTES, 'UTF-8') : '' ?>">
                                             ±1% от цены
@@ -795,6 +817,24 @@ $renderLevelRows = static function (array $rows, string $side): void {
                     box.checked = turnOn;
                 });
             });
+        });
+
+        document.getElementById('range-set-low-12h')?.addEventListener('click', () => {
+            const value = document.getElementById('range-set-low-12h')?.dataset.value;
+            const lowEl = document.getElementById('range_low');
+            if (!value || !lowEl) {
+                return;
+            }
+            lowEl.value = value;
+        });
+
+        document.getElementById('range-set-high-12h')?.addEventListener('click', () => {
+            const value = document.getElementById('range-set-high-12h')?.dataset.value;
+            const highEl = document.getElementById('range_high');
+            if (!value || !highEl) {
+                return;
+            }
+            highEl.value = value;
         });
 
         document.getElementById('range-fill-from-price')?.addEventListener('click', () => {

@@ -75,4 +75,37 @@ final class CandleRepository
 
         return $statement->fetchAll();
     }
+
+    /**
+     * Min low / max high за последние $hours часов (по confirmed свечам).
+     *
+     * @return array{low: float, high: float}|null
+     */
+    public function extremumLastHours(string $symbol, string $interval, int $hours = 12): ?array
+    {
+        $hours = max(1, $hours);
+        $since = gmdate('Y-m-d H:i:s', time() - ($hours * 3600));
+        $statement = $this->pdo->prepare(
+            'SELECT MIN(low_price) AS low_price, MAX(high_price) AS high_price
+             FROM candles
+             WHERE symbol = :symbol
+               AND interval_code = :interval
+               AND is_confirmed = 1
+               AND open_time >= :since'
+        );
+        $statement->execute([
+            'symbol' => $symbol,
+            'interval' => $interval,
+            'since' => $since,
+        ]);
+        $row = $statement->fetch();
+        if (!is_array($row) || $row['low_price'] === null || $row['high_price'] === null) {
+            return null;
+        }
+
+        return [
+            'low' => (float) $row['low_price'],
+            'high' => (float) $row['high_price'],
+        ];
+    }
 }
