@@ -30,7 +30,7 @@ final class RangeAlertConfig
     }
 
     /**
-     * @return array{zone: ?string, sent: int, episode_key: ?string}
+     * @return array{zone: ?string, sent: int, episode_key: ?string, last_candle_open_time: ?string}
      */
     public static function defaultState(): array
     {
@@ -38,6 +38,7 @@ final class RangeAlertConfig
             'zone' => null,
             'sent' => 0,
             'episode_key' => null,
+            'last_candle_open_time' => null,
         ];
     }
 
@@ -96,7 +97,7 @@ final class RangeAlertConfig
 
     /**
      * @param mixed $raw
-     * @return array{zone: ?string, sent: int, episode_key: ?string}
+     * @return array{zone: ?string, sent: int, episode_key: ?string, last_candle_open_time: ?string}
      */
     public static function normalizeState(mixed $raw): array
     {
@@ -110,12 +111,15 @@ final class RangeAlertConfig
             $zone = null;
         }
 
+        $lastCandle = $raw['last_candle_open_time'] ?? null;
+
         return [
             'zone' => $zone,
             'sent' => max(0, (int) ($raw['sent'] ?? 0)),
             'episode_key' => isset($raw['episode_key']) && is_string($raw['episode_key']) && $raw['episode_key'] !== ''
                 ? $raw['episode_key']
                 : null,
+            'last_candle_open_time' => is_string($lastCandle) && $lastCandle !== '' ? $lastCandle : null,
         ];
     }
 

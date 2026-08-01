@@ -504,8 +504,9 @@ $renderLevelRows = static function (array $rows, string $side): void {
                     <div class="accordion-body">
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                             <p class="text-secondary small mb-0">
-                                При закрытии M1 выше «верх» или ниже «низ» отправляется заданное число уведомлений в Telegram.
-                                Повтор — только после возврата цены внутрь диапазона.
+                                При закрытии M1 выше «верх» или ниже «низ» — по одному уведомлению в минуту,
+                                пока цена вне диапазона, всего не больше указанного числа за выход.
+                                Повтор серии — только после возврата внутрь.
                                 Текущая цена: <strong class="text-info"><?= $lastPriceLabel ?></strong>
                             </p>
                             <div class="d-flex gap-2 align-items-center">
@@ -540,7 +541,7 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                                placeholder="например 64000">
                                     </div>
                                     <div class="col-6 col-md-3 col-xl-2">
-                                        <label class="form-label small text-secondary mb-1" for="range_notify_count">кол-во уведомлений</label>
+                                        <label class="form-label small text-secondary mb-1" for="range_notify_count">уведомлений (раз в минуту)</label>
                                         <input class="form-control form-control-sm bg-dark text-light border-secondary"
                                                type="number" min="1" max="20" step="1"
                                                id="range_notify_count" name="range_notify_count"
@@ -566,7 +567,7 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                     </div>
                                 </div>
                                 <div class="small text-secondary mt-2">
-                                    Выше верха → LONG-уведомления; ниже низа → SHORT. Сообщения нумеруются 1/N … N/N.
+                                    Выше верха → LONG; ниже низа → SHORT. Пример: N=3 → до трёх сообщений с интервалом ~1 мин (1/3, 2/3, 3/3), пока цена снаружи.
                                 </div>
                             </div>
                         </div>

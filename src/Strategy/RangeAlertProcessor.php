@@ -9,8 +9,9 @@ use App\Telegram\Bot;
 
 /**
  * Уведомления о выходе цены из диапазона [low, high] по закрытию M1.
- * На один эпизод выхода сразу отправляется notify_count сообщений;
- * после возврата внутрь диапазона можно снова уведомлять при следующем выходе.
+ * Пока цена вне диапазона — не чаще одного уведомления в минуту,
+ * всего не больше notify_count за эпизод выхода.
+ * После возврата внутрь счётчик сбрасывается.
  */
 final class RangeAlertProcessor
 {
@@ -56,6 +57,7 @@ final class RangeAlertProcessor
         $prevZone = $state['zone'];
         $sent = (int) $state['sent'];
         $episodeKey = $state['episode_key'];
+        $lastCandle = $state['last_candle_open_time'];
 
         if ($zone === 'inside') {
             if ($prevZone !== 'inside' || $sent > 0 || $episodeKey !== null) {
@@ -63,6 +65,7 @@ final class RangeAlertProcessor
                     'zone' => 'inside',
                     'sent' => 0,
                     'episode_key' => null,
+                    'last_candle_open_time' => null,
                 ]);
                 $this->logger->info('Диапазон: цена вернулась внутрь.', [
                     'price' => $price,
@@ -75,101 +78,120 @@ final class RangeAlertProcessor
             return 0;
         }
 
-        // Уже уведомили об этом выходе — ждём возврата внутрь.
-        $alreadyNotified = $prevZone === $zone
-            && $episodeKey !== null
-            && $sent >= $notifyCount;
-        if ($alreadyNotified) {
-            return 0;
-        }
-
         // Новый выход (смена стороны / первый уход) — новый эпизод.
         if ($prevZone !== $zone || $prevZone === 'inside' || $prevZone === null || $episodeKey === null) {
             $episodeKey = $zone . '_' . $candleOpenTime;
             $sent = 0;
+            $lastCandle = null;
         }
 
-        $created = 0;
+        // Лимит за эпизод исчерпан — ждём возврата внутрь.
+        if ($sent >= $notifyCount) {
+            $this->saveState([
+                'zone' => $zone,
+                'sent' => $sent,
+                'episode_key' => $episodeKey,
+                'last_candle_open_time' => $lastCandle,
+            ]);
+
+            return 0;
+        }
+
+        // Уже отправили за эту минутную свечу (cron + dashboard).
+        if ($lastCandle === $candleOpenTime) {
+            $this->saveState([
+                'zone' => $zone,
+                'sent' => $sent,
+                'episode_key' => $episodeKey,
+                'last_candle_open_time' => $lastCandle,
+            ]);
+
+            return 0;
+        }
+
+        $index = $sent + 1;
         $side = $zone === 'above' ? 'Buy' : 'Sell';
         $signalType = 'range_exit_' . $zone;
+        $message = $this->buildMessage(
+            $symbol,
+            $zone,
+            $side,
+            $price,
+            (float) $low,
+            (float) $high,
+            $index,
+            $notifyCount,
+            $candleOpenTime
+        );
+        $payload = [
+            'source' => 'range_alert',
+            'zone' => $zone,
+            'low' => $low,
+            'high' => $high,
+            'notify_index' => $index,
+            'notify_count' => $notifyCount,
+            'episode_key' => $episodeKey,
+            'telegram_text' => $message,
+        ];
 
-        for ($index = $sent + 1; $index <= $notifyCount; $index++) {
-            $message = $this->buildMessage(
-                $symbol,
-                $zone,
-                $side,
-                $price,
-                (float) $low,
-                (float) $high,
-                $index,
-                $notifyCount,
-                $candleOpenTime
-            );
-            $payload = [
-                'source' => 'range_alert',
+        $signalId = $this->signals->createOnce(
+            null,
+            $symbol,
+            $side,
+            $signalType,
+            $index,
+            $candleOpenTime,
+            (string) $price,
+            $payload,
+        );
+
+        if ($signalId === null) {
+            // Уже есть запись за эту минуту/индекс — считаем слот занятым.
+            $this->saveState([
                 'zone' => $zone,
-                'low' => $low,
-                'high' => $high,
-                'notify_index' => $index,
-                'notify_count' => $notifyCount,
+                'sent' => $index,
                 'episode_key' => $episodeKey,
-                'telegram_text' => $message,
-            ];
+                'last_candle_open_time' => $candleOpenTime,
+            ]);
 
-            $signalId = $this->signals->createOnce(
-                null,
-                $symbol,
-                $side,
-                $signalType,
-                $index,
-                $candleOpenTime,
-                (string) $price,
-                $payload,
-            );
+            return 0;
+        }
 
-            if ($signalId === null) {
-                $sent = $index;
-                continue;
-            }
-
-            $created++;
-            $sentOk = $this->telegram->send($message, [
+        $sentOk = $this->telegram->send($message, [
+            'signal_id' => $signalId,
+            'source' => 'range_alert',
+            'zone' => $zone,
+            'notify_index' => $index,
+        ]);
+        if ($sentOk) {
+            $this->signals->markTelegramSent($signalId);
+        } else {
+            $this->logger->error('Диапазон: не удалось отправить уведомление в Telegram.', [
                 'signal_id' => $signalId,
-                'source' => 'range_alert',
                 'zone' => $zone,
                 'notify_index' => $index,
-            ]);
-            if ($sentOk) {
-                $this->signals->markTelegramSent($signalId);
-            } else {
-                $this->logger->error('Диапазон: не удалось отправить уведомление в Telegram.', [
-                    'signal_id' => $signalId,
-                    'zone' => $zone,
-                    'notify_index' => $index,
-                ], 'telegram');
-            }
-
-            $sent = $index;
+            ], 'telegram');
         }
 
         $this->saveState([
             'zone' => $zone,
-            'sent' => $sent,
+            'sent' => $index,
             'episode_key' => $episodeKey,
+            'last_candle_open_time' => $candleOpenTime,
         ]);
 
-        if ($created > 0) {
-            $this->logger->info('Диапазон: уведомления о выходе отправлены.', [
-                'zone' => $zone,
-                'price' => $price,
-                'low' => $low,
-                'high' => $high,
-                'created' => $created,
-                'notify_count' => $notifyCount,
-            ], 'trading');
-        }
+        $this->logger->info('Диапазон: минутное уведомление о выходе.', [
+            'signal_id' => $signalId,
+            'zone' => $zone,
+            'price' => $price,
+            'low' => $low,
+            'high' => $high,
+            'notify_index' => $index,
+            'notify_count' => $notifyCount,
+            'telegram' => $sentOk,
+        ], 'trading');
 
-        return $created;
+        return 1;
     }
 
     private function zoneForPrice(float $price, float $low, float $high): string
@@ -237,7 +259,7 @@ final class RangeAlertProcessor
     }
 
     /**
-     * @return array{zone: ?string, sent: int, episode_key: ?string}
+     * @return array{zone: ?string, sent: int, episode_key: ?string, last_candle_open_time: ?string}
      */
     private function loadState(): array
     {
@@ -255,7 +277,7 @@ final class RangeAlertProcessor
     }
 
     /**
-     * @param array{zone: ?string, sent: int, episode_key: ?string} $state
+     * @param array{zone: ?string, sent: int, episode_key: ?string, last_candle_open_time: ?string} $state
      */
     private function saveState(array $state): void
     {
