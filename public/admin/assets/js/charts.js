@@ -3,6 +3,50 @@
 
     const RIGHT_OFFSET_BARS = 300;
     const VIEW_STORAGE_KEY = 'tradesignals.chartView.v2';
+    const MA_STORAGE_KEY = 'tradesignals.chartMa.v1';
+    const MA_PERIODS = [
+        { period: 7, color: '#f59e0b', key: 'ma7' },
+        { period: 25, color: '#3b82f6', key: 'ma25' },
+        { period: 99, color: '#a855f7', key: 'ma99' },
+    ];
+
+    function readMaEnabled() {
+        try {
+            return localStorage.getItem(MA_STORAGE_KEY) === '1';
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    function writeMaEnabled(enabled) {
+        try {
+            localStorage.setItem(MA_STORAGE_KEY, enabled ? '1' : '0');
+        } catch (_error) {
+            // ignore
+        }
+    }
+
+    /** Простая скользящая средняя по close. */
+    function computeSma(candles, period) {
+        const out = [];
+        if (!Array.isArray(candles) || period < 1 || candles.length < period) {
+            return out;
+        }
+        let sum = 0;
+        for (let i = 0; i < candles.length; i += 1) {
+            sum += Number(candles[i].close);
+            if (i >= period) {
+                sum -= Number(candles[i - period].close);
+            }
+            if (i >= period - 1) {
+                out.push({
+                    time: candles[i].time,
+                    value: sum / period,
+                });
+            }
+        }
+        return out;
+    }
 
     function createChart(container) {
         const chart = LightweightCharts.createChart(container, {
@@ -33,6 +77,43 @@
             wickDownColor: '#ef4444',
         });
 
+        const maSeries = {};
+        MA_PERIODS.forEach((item) => {
+            maSeries[item.key] = chart.addLineSeries({
+                color: item.color,
+                lineWidth: 1,
+                priceLineVisible: false,
+                lastValueVisible: false,
+                crosshairMarkerVisible: false,
+                visible: false,
+                title: `MA${item.period}`,
+            });
+        });
+
+        let lastCandles = [];
+        let maEnabled = false;
+
+        const applyMaData = () => {
+            MA_PERIODS.forEach((item) => {
+                const line = maSeries[item.key];
+                if (!line) {
+                    return;
+                }
+                if (!maEnabled || lastCandles.length < item.period) {
+                    line.setData([]);
+                    line.applyOptions({ visible: false });
+                    return;
+                }
+                line.setData(computeSma(lastCandles, item.period));
+                line.applyOptions({ visible: true });
+            });
+        };
+
+        const setMaEnabled = (enabled) => {
+            maEnabled = !!enabled;
+            applyMaData();
+        };
+
         const resize = () => {
             chart.applyOptions({
                 width: container.clientWidth,
@@ -43,8 +124,40 @@
         window.addEventListener('resize', resize);
 
         attachChartNav(container, chart);
+        attachMaLegend(container);
 
-        return { chart, series, resize, container };
+        return {
+            chart,
+            series,
+            maSeries,
+            resize,
+            container,
+            setMaEnabled,
+            setLastCandles(candles) {
+                lastCandles = Array.isArray(candles) ? candles : [];
+                applyMaData();
+            },
+        };
+    }
+
+    function attachMaLegend(container) {
+        if (container.querySelector('.chart-ma-legend')) {
+            return;
+        }
+        const legend = document.createElement('div');
+        legend.className = 'chart-ma-legend';
+        legend.hidden = true;
+        legend.innerHTML = MA_PERIODS.map(
+            (item) => `<span style="color:${item.color}">MA${item.period}</span>`
+        ).join('');
+        container.appendChild(legend);
+    }
+
+    function setMaLegendVisible(container, visible) {
+        const legend = container.querySelector('.chart-ma-legend');
+        if (legend) {
+            legend.hidden = !visible;
+        }
     }
 
     function scrollChartToEnd(chart) {
@@ -371,6 +484,7 @@
     function createDashboard({ endpoint, containerSelector, priceSelector }) {
         const hosts = Array.from(document.querySelectorAll(containerSelector));
         const charts = new Map();
+        let maEnabled = readMaEnabled();
 
         hosts.forEach((host) => {
             const entry = createChart(host);
@@ -381,8 +495,24 @@
                 entry.container,
                 `dashboard:${label}`
             );
+            entry.setMaEnabled(maEnabled);
+            setMaLegendVisible(entry.container, maEnabled);
             charts.set(label, entry);
         });
+
+        function setMaEnabled(enabled) {
+            maEnabled = !!enabled;
+            writeMaEnabled(maEnabled);
+            charts.forEach((entry) => {
+                entry.setMaEnabled(maEnabled);
+                setMaLegendVisible(entry.container, maEnabled);
+            });
+            return maEnabled;
+        }
+
+        function isMaEnabled() {
+            return maEnabled;
+        }
 
         async function load() {
             const response = await fetch(endpoint, { credentials: 'same-origin' });
@@ -402,6 +532,7 @@
                 }
                 const candles = item.candles || [];
                 entry.view.setCandles(candles);
+                entry.setLastCandles(candles);
                 if (seqEl) {
                     const seq = item.sequence || {};
                     const seqLabel = seq.label || '—';
@@ -457,13 +588,17 @@
             }
         }
 
-        return { load };
+        return { load, setMaEnabled, isMaEnabled };
     }
 
     function createSingleChart({ endpoint, containerId, viewKey }) {
         const container = document.getElementById(containerId);
         if (!container) {
-            return { load: async () => {} };
+            return {
+                load: async () => {},
+                setMaEnabled: () => false,
+                isMaEnabled: () => false,
+            };
         }
         const entry = createChart(container);
         entry.view = bindViewPersistence(
@@ -472,6 +607,9 @@
             entry.container,
             viewKey || `single:${containerId}`
         );
+        let maEnabled = readMaEnabled();
+        entry.setMaEnabled(maEnabled);
+        setMaLegendVisible(entry.container, maEnabled);
 
         async function load() {
             const response = await fetch(endpoint, { credentials: 'same-origin' });
@@ -481,6 +619,7 @@
             const payload = await response.json();
             const candles = payload.candles || [];
             entry.view.setCandles(candles);
+            entry.setLastCandles(candles);
 
             const lastSignalEl = document.getElementById('chart-last-signal');
             if (lastSignalEl) {
@@ -501,7 +640,19 @@
             return candles.length;
         }
 
-        return { load };
+        function setMaEnabled(enabled) {
+            maEnabled = !!enabled;
+            writeMaEnabled(maEnabled);
+            entry.setMaEnabled(maEnabled);
+            setMaLegendVisible(entry.container, maEnabled);
+            return maEnabled;
+        }
+
+        function isMaEnabled() {
+            return maEnabled;
+        }
+
+        return { load, setMaEnabled, isMaEnabled };
     }
 
     function createQuotesAutoRefresh({

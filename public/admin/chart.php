@@ -67,6 +67,7 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
                 <span class="chart-last-signal text-secondary ms-1" id="chart-last-signal"></span>
             </span>
             <span class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-warning btn-sm" id="toggle-ma" title="SMA 7 / 25 / 99">МА</button>
                 <small class="text-secondary" id="chart-count">загрузка…</small>
                 <span class="badge text-bg-secondary" id="quotes-refresh-status">автообновление 60с</span>
             </span>
@@ -77,13 +78,31 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260731-8"></script>
+<script src="/admin/assets/js/charts.js?v=20260802-1"></script>
 <script>
     document.addEventListener('DOMContentLoaded', async () => {
         const chart = window.TradeSignalsCharts.createSingleChart({
             endpoint: '/api/candles.php?interval=<?= rawurlencode($active) ?>&limit=all',
             containerId: 'main-chart',
             viewKey: 'single:<?= rawurlencode($active) ?>',
+        });
+
+        const maBtn = document.getElementById('toggle-ma');
+        const syncMaButton = () => {
+            if (!maBtn) {
+                return;
+            }
+            const on = chart.isMaEnabled();
+            maBtn.classList.toggle('btn-warning', on);
+            maBtn.classList.toggle('btn-outline-warning', !on);
+            maBtn.classList.toggle('text-dark', on);
+            maBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            maBtn.title = on ? 'Скрыть SMA 7 / 25 / 99' : 'Показать SMA 7 / 25 / 99';
+        };
+        syncMaButton();
+        maBtn?.addEventListener('click', () => {
+            chart.setMaEnabled(!chart.isMaEnabled());
+            syncMaButton();
         });
 
         const updateCount = async () => {

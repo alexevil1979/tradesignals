@@ -28,6 +28,23 @@
     cursor: pointer;
 }
 
+.chart-ma-legend {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 5;
+    display: flex;
+    gap: 0.55rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0.3rem 0.45rem;
+    border-radius: 4px;
+    border: 1px solid #30363d;
+    background: rgba(13, 17, 23, 0.88);
+    pointer-events: none;
+}
+
 .chart-last-signal {
     font-size: 0.8rem;
     font-weight: 500;

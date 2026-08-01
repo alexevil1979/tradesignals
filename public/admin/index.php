@@ -57,6 +57,7 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
             <?php endif; ?>
             <span id="quotes-refresh-status" class="badge text-bg-secondary">автообновление 60с</span>
             <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
+            <button type="button" class="btn btn-outline-warning btn-sm" id="toggle-ma" title="SMA 7 / 25 / 99">МА</button>
             <button type="button" class="btn btn-outline-light btn-sm" id="refresh-charts">Обновить</button>
         </div>
     </div>
@@ -109,13 +110,31 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260731-8"></script>
+<script src="/admin/assets/js/charts.js?v=20260802-1"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const dashboard = window.TradeSignalsCharts.createDashboard({
             endpoint: '/api/candles.php?interval=all&limit=all',
             containerSelector: '.chart-host',
             priceSelector: '#last-price',
+        });
+
+        const maBtn = document.getElementById('toggle-ma');
+        const syncMaButton = () => {
+            if (!maBtn) {
+                return;
+            }
+            const on = dashboard.isMaEnabled();
+            maBtn.classList.toggle('btn-warning', on);
+            maBtn.classList.toggle('btn-outline-warning', !on);
+            maBtn.classList.toggle('text-dark', on);
+            maBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            maBtn.title = on ? 'Скрыть SMA 7 / 25 / 99' : 'Показать SMA 7 / 25 / 99';
+        };
+        syncMaButton();
+        maBtn?.addEventListener('click', () => {
+            dashboard.setMaEnabled(!dashboard.isMaEnabled());
+            syncMaButton();
         });
 
         const refreshQuotes = window.TradeSignalsCharts.createQuotesAutoRefresh({
