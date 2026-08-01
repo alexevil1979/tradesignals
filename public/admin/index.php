@@ -57,7 +57,7 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
             <?php endif; ?>
             <span id="quotes-refresh-status" class="badge text-bg-secondary">автообновление 60с</span>
             <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
-            <button type="button" class="btn btn-outline-warning btn-sm" id="toggle-ma" title="SMA 7 / 25 / 99">МА</button>
+            <button type="button" class="btn btn-outline-warning btn-sm" id="toggle-ma" title="SMA 28">МА</button>
             <button type="button" class="btn btn-outline-light btn-sm" id="refresh-charts">Обновить</button>
         </div>
     </div>
@@ -129,7 +129,7 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
             maBtn.classList.toggle('btn-outline-warning', !on);
             maBtn.classList.toggle('text-dark', on);
             maBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-            maBtn.title = on ? 'Скрыть SMA 7 / 25 / 99' : 'Показать SMA 7 / 25 / 99';
+            maBtn.title = on ? 'Скрыть SMA 28' : 'Показать SMA 28';
         };
         syncMaButton();
         maBtn?.addEventListener('click', () => {

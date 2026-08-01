@@ -5,9 +5,7 @@
     const VIEW_STORAGE_KEY = 'tradesignals.chartView.v2';
     const MA_STORAGE_KEY = 'tradesignals.chartMa.v1';
     const MA_PERIODS = [
-        { period: 7, color: '#f59e0b', key: 'ma7' },
-        { period: 25, color: '#3b82f6', key: 'ma25' },
-        { period: 99, color: '#a855f7', key: 'ma99' },
+        { period: 28, color: '#3b82f6', key: 'ma28' },
     ];
 
     function readMaEnabled() {
