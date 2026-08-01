@@ -13,6 +13,7 @@ use App\Strategy\CandleRepository;
 use App\Strategy\GridManager;
 use App\Strategy\RuleEngine;
 use App\Strategy\LevelGridProcessor;
+use App\Strategy\RangeAlertProcessor;
 use App\Strategy\SignalGridConfig;
 use App\Strategy\SignalGridProcessor;
 use App\Strategy\SignalRepository;
@@ -90,13 +91,21 @@ $levelCreated = (new LevelGridProcessor(
     $telegram,
     $logger,
 ))->process($symbol);
+$rangeCreated = (new RangeAlertProcessor(
+    $settings,
+    $candleRepository,
+    $signalRepository,
+    $telegram,
+    $logger,
+))->process($symbol);
 $logger->info('Обработка матрицы сигналов завершена.', [
     'symbol' => $symbol,
-    'created' => $gridCreated + $levelCreated,
+    'created' => $gridCreated + $levelCreated + $rangeCreated,
     'bars' => $gridCreated,
     'levels' => $levelCreated,
+    'range' => $rangeCreated,
 ], 'cron');
-echo "Матрица сигналов: бары {$gridCreated}, уровни {$levelCreated}.\n";
+echo "Матрица сигналов: бары {$gridCreated}, уровни {$levelCreated}, диапазон {$rangeCreated}.\n";
 
 $strategies = (new StrategyRepository($pdo))->active();
 if (count($strategies) > 1) {
