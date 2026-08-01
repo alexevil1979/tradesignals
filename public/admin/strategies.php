@@ -91,6 +91,7 @@ $symbol = (string) $config['bybit']['symbol'];
 $lastPrice = null;
 $range12h = null;
 $range24h = null;
+$range48h = null;
 try {
     $candleRepo = new CandleRepository($pdo);
     $m1 = $candleRepo->latestConfirmed($symbol, '1', 1);
@@ -99,10 +100,12 @@ try {
     }
     $range12h = $candleRepo->extremumLastHours($symbol, '1', 12);
     $range24h = $candleRepo->extremumLastHours($symbol, '1', 24);
+    $range48h = $candleRepo->extremumLastHours($symbol, '1', 48);
 } catch (Throwable) {
     $lastPrice = null;
     $range12h = null;
     $range24h = null;
+    $range48h = null;
 }
 
 $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
@@ -121,6 +124,12 @@ $low24Label = $range24h !== null
     : null;
 $high24Label = $range24h !== null
     ? htmlspecialchars(RangeAlertConfig::formatPrice($range24h['high']), ENT_QUOTES, 'UTF-8')
+    : null;
+$low48Label = $range48h !== null
+    ? htmlspecialchars(RangeAlertConfig::formatPrice($range48h['low']), ENT_QUOTES, 'UTF-8')
+    : null;
+$high48Label = $range48h !== null
+    ? htmlspecialchars(RangeAlertConfig::formatPrice($range48h['high']), ENT_QUOTES, 'UTF-8')
     : null;
 
 /**
@@ -581,6 +590,18 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                                 title="Подставить high за последние 24 часа">
                                             High 24ч<?= $high24Label !== null ? ': ' . $high24Label : '' ?>
                                         </button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" id="range-set-low-48h"
+                                            <?= $low48Label === null ? 'disabled' : '' ?>
+                                                data-value="<?= $low48Label ?? '' ?>"
+                                                title="Подставить low за последние 48 часов">
+                                            Low 48ч<?= $low48Label !== null ? ': ' . $low48Label : '' ?>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-success" id="range-set-high-48h"
+                                            <?= $high48Label === null ? 'disabled' : '' ?>
+                                                data-value="<?= $high48Label ?? '' ?>"
+                                                title="Подставить high за последние 48 часов">
+                                            High 48ч<?= $high48Label !== null ? ': ' . $high48Label : '' ?>
+                                        </button>
                                         <button type="button" class="btn btn-sm btn-outline-info" id="range-fill-from-price"
                                                 data-price="<?= $lastPrice !== null ? htmlspecialchars(RangeAlertConfig::formatPrice($lastPrice), ENT_QUOTES, 'UTF-8') : '' ?>">
                                             ±1% от цены
@@ -855,6 +876,8 @@ $renderLevelRows = static function (array $rows, string $side): void {
         bindRangeQuickSet('range-set-high-12h', 'range_high');
         bindRangeQuickSet('range-set-low-24h', 'range_low');
         bindRangeQuickSet('range-set-high-24h', 'range_high');
+        bindRangeQuickSet('range-set-low-48h', 'range_low');
+        bindRangeQuickSet('range-set-high-48h', 'range_high');
 
         document.getElementById('range-fill-from-price')?.addEventListener('click', () => {
             const btn = document.getElementById('range-fill-from-price');
