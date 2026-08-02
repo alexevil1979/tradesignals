@@ -7,6 +7,8 @@ use App\Strategy\CandleRepository;
 use App\Strategy\LevelGridConfig;
 use App\Strategy\RangeAlertConfig;
 use App\Strategy\SignalGridConfig;
+use App\Helpers\ChartUiState;
+use App\Helpers\Intervals;
 
 require dirname(__DIR__, 2) . '/bootstrap.php';
 
@@ -109,6 +111,7 @@ try {
 }
 
 $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
+$chartNavHref = htmlspecialchars(ChartUiState::chartHref(Intervals::chartMap()), ENT_QUOTES, 'UTF-8');
 $minBodyNote = htmlspecialchars(SignalGridConfig::MIN_BODY_NOTE, ENT_QUOTES, 'UTF-8');
 $lastPriceLabel = $lastPrice !== null
     ? htmlspecialchars(LevelGridConfig::formatPriceKey($lastPrice), ENT_QUOTES, 'UTF-8')
@@ -209,7 +212,7 @@ $renderLevelRows = static function (array $rows, string $side): void {
         <a class="navbar-brand" href="/admin/">Bybit Grid Bot</a>
         <div class="navbar-nav">
             <a class="nav-link" href="/admin/">Dashboard</a>
-            <a class="nav-link" href="/admin/chart.php">График</a>
+            <a class="nav-link" href="<?= $chartNavHref ?>">График</a>
             <a class="nav-link active" href="/admin/strategies.php">Стратегии</a>
             <a class="nav-link" href="/admin/orders.php">Ордера</a>
             <a class="nav-link" href="/admin/settings.php">Настройки</a>

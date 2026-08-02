@@ -4,9 +4,48 @@
     const RIGHT_OFFSET_BARS = 300;
     const VIEW_STORAGE_KEY = 'tradesignals.chartView.v2';
     const MA_STORAGE_KEY = 'tradesignals.chartMa.v1';
+    const TF_STORAGE_KEY = 'tradesignals.chartTf.v1';
+    const TF_COOKIE = 'tradesignals_chart_tf';
     const MA_PERIODS = [
         { period: 28, color: '#3b82f6', key: 'ma28' },
     ];
+
+    function persistChartTimeframe(tf) {
+        if (!tf || typeof tf !== 'string') {
+            return;
+        }
+        try {
+            localStorage.setItem(TF_STORAGE_KEY, tf);
+        } catch (_error) {
+            // ignore
+        }
+        try {
+            const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+            document.cookie = `${TF_COOKIE}=${encodeURIComponent(tf)}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+        } catch (_error) {
+            // ignore
+        }
+    }
+
+    function readSavedChartTimeframe() {
+        try {
+            const fromLs = localStorage.getItem(TF_STORAGE_KEY);
+            if (fromLs) {
+                return fromLs;
+            }
+        } catch (_error) {
+            // ignore
+        }
+        try {
+            const match = document.cookie.match(new RegExp(`(?:^|; )${TF_COOKIE}=([^;]*)`));
+            if (match) {
+                return decodeURIComponent(match[1]);
+            }
+        } catch (_error) {
+            // ignore
+        }
+        return null;
+    }
 
     function readMaEnabled() {
         try {
@@ -389,10 +428,29 @@
             }, 200);
         };
 
+        const flushSave = () => {
+            if (applying || !viewKey || barCount <= 0) {
+                return;
+            }
+            window.clearTimeout(saveTimer);
+            const next = captureView(chart, series, barCount);
+            if (!next) {
+                return;
+            }
+            state = next;
+            persistView(viewKey, next);
+        };
+
         chart.timeScale().subscribeVisibleLogicalRangeChange(scheduleSave);
         container.addEventListener('mouseup', scheduleSave);
         container.addEventListener('touchend', scheduleSave, { passive: true });
         container.addEventListener('wheel', scheduleSave, { passive: true });
+        window.addEventListener('pagehide', flushSave);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                flushSave();
+            }
+        });
 
         /**
          * Единая точка обновления данных: лочим сохранение ДО setData/update,
@@ -725,5 +783,11 @@
         return { start, stop, tick };
     }
 
-    window.TradeSignalsCharts = { createDashboard, createSingleChart, createQuotesAutoRefresh };
+    window.TradeSignalsCharts = {
+        createDashboard,
+        createSingleChart,
+        createQuotesAutoRefresh,
+        persistChartTimeframe,
+        readSavedChartTimeframe,
+    };
 })();

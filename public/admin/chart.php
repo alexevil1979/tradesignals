@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use App\Auth\AdminAuth;
+use App\Helpers\ChartUiState;
 use App\Helpers\Intervals;
 
 require dirname(__DIR__, 2) . '/bootstrap.php';
@@ -11,14 +12,21 @@ $auth->startSession($config['app']['session_name']);
 $auth->requireLogin();
 
 $intervals = Intervals::chartMap();
-$active = (string) ($_GET['tf'] ?? 'M15');
-if (!isset($intervals[$active])) {
-    $active = 'M15';
+$hasTfInQuery = array_key_exists('tf', $_GET);
+$active = ChartUiState::resolveTimeframe($intervals, isset($_GET['tf']) ? (string) $_GET['tf'] : null);
+ChartUiState::rememberTimeframe($active);
+
+// Канонический URL с tf — чтобы при возврате на «График» и refresh всё совпадало.
+if (!$hasTfInQuery || (string) ($_GET['tf'] ?? '') !== $active) {
+    header('Location: /admin/chart.php?tf=' . rawurlencode($active), true, 302);
+    exit;
 }
+
 $symbol = htmlspecialchars($config['bybit']['symbol'], ENT_QUOTES, 'UTF-8');
 $category = htmlspecialchars((string) $config['bybit']['category'], ENT_QUOTES, 'UTF-8');
 $marketLabel = $category === 'linear' ? 'USDT Perpetual' : $category;
 $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
+$chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES, 'UTF-8');
 ?>
 <!doctype html>
 <html lang="ru" data-bs-theme="dark">
@@ -35,7 +43,7 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
         <a class="navbar-brand" href="/admin/">Bybit Grid Bot</a>
         <div class="navbar-nav">
             <a class="nav-link" href="/admin/">Dashboard</a>
-            <a class="nav-link active" href="/admin/chart.php">График</a>
+            <a class="nav-link active" href="<?= $chartNavHref ?>">График</a>
             <a class="nav-link" href="/admin/strategies.php">Стратегии</a>
             <a class="nav-link" href="/admin/orders.php">Ордера</a>
             <a class="nav-link" href="/admin/settings.php">Настройки</a>
@@ -78,9 +86,12 @@ $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260802-2"></script>
+<script src="/admin/assets/js/charts.js?v=20260802-3"></script>
 <script>
     document.addEventListener('DOMContentLoaded', async () => {
+        const activeTf = <?= json_encode($active, JSON_UNESCAPED_UNICODE) ?>;
+        window.TradeSignalsCharts.persistChartTimeframe(activeTf);
+
         const chart = window.TradeSignalsCharts.createSingleChart({
             endpoint: '/api/candles.php?interval=<?= rawurlencode($active) ?>&limit=all',
             containerId: 'main-chart',

@@ -2,12 +2,16 @@
 declare(strict_types=1);
 
 use App\Auth\AdminAuth;
+use App\Helpers\ChartUiState;
+use App\Helpers\Intervals;
 
 require dirname(__DIR__, 2) . '/bootstrap.php';
 
 $auth = new AdminAuth($pdo);
 $auth->startSession($config['app']['session_name']);
 $auth->requireLogin();
+
+$chartNavHref = htmlspecialchars(ChartUiState::chartHref(Intervals::chartMap()), ENT_QUOTES, 'UTF-8');
 
 $channel = (string) ($_GET['channel'] ?? '');
 $allowedChannels = ['', 'telegram', 'trading', 'cron', 'app', 'bybit'];
@@ -60,7 +64,7 @@ $badge = static function (string $level): string {
         <a class="navbar-brand" href="/admin/">Bybit Grid Bot</a>
         <div class="navbar-nav">
             <a class="nav-link" href="/admin/">Dashboard</a>
-            <a class="nav-link" href="/admin/chart.php">График</a>
+            <a class="nav-link" href="<?= $chartNavHref ?>">График</a>
             <a class="nav-link" href="/admin/strategies.php">Стратегии</a>
             <a class="nav-link" href="/admin/orders.php">Ордера</a>
             <a class="nav-link" href="/admin/settings.php">Настройки</a>

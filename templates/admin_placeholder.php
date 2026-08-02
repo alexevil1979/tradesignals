@@ -1,7 +1,13 @@
 <?php
 declare(strict_types=1);
+
+use App\Helpers\ChartUiState;
+use App\Helpers\Intervals;
+
 /** @var string $title */
 $pageTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+$chartNavHref = htmlspecialchars(ChartUiState::chartHref(Intervals::chartMap()), ENT_QUOTES, 'UTF-8');
+$current = basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
 ?>
 <!doctype html>
 <html lang="ru" data-bs-theme="dark">
@@ -17,12 +23,12 @@ $pageTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
         <a class="navbar-brand" href="/admin/">Bybit Grid Bot</a>
         <div class="navbar-nav">
             <a class="nav-link" href="/admin/">Dashboard</a>
-            <a class="nav-link" href="/admin/chart.php">График</a>
+            <a class="nav-link" href="<?= $chartNavHref ?>">График</a>
             <a class="nav-link" href="/admin/strategies.php">Стратегии</a>
-            <a class="nav-link" href="/admin/orders.php">Ордера</a>
-            <a class="nav-link" href="/admin/settings.php">Настройки</a>
+            <a class="nav-link <?= $current === 'orders.php' ? 'active' : '' ?>" href="/admin/orders.php">Ордера</a>
+            <a class="nav-link <?= $current === 'settings.php' ? 'active' : '' ?>" href="/admin/settings.php">Настройки</a>
             <a class="nav-link" href="/admin/logs.php">Логи</a>
-            <a class="nav-link" href="/admin/signals.php">Сигналы</a>
+            <a class="nav-link <?= $current === 'signals.php' ? 'active' : '' ?>" href="/admin/signals.php">Сигналы</a>
         </div>
     </div>
 </nav>
