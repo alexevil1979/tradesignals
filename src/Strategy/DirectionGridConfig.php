@@ -17,6 +17,7 @@ final class DirectionGridConfig
     /**
      * @return array{
      *   enabled: bool,
+     *   test_mode: bool,
      *   mode: 'high'|'low',
      *   period_minutes: int,
      *   profit: float|int,
@@ -29,6 +30,7 @@ final class DirectionGridConfig
     {
         return [
             'enabled' => false,
+            'test_mode' => true,
             'mode' => 'high',
             'period_minutes' => 60,
             'profit' => 300,
@@ -51,6 +53,7 @@ final class DirectionGridConfig
      *   filled_any: bool,
      *   stopped: bool,
      *   wait_close: bool,
+     *   test_position: array{open: bool, side: ?string, entry: float|null}|null,
      *   levels: list<array{index: int, link_id: string, status: string, price: float|null}>
      * }
      */
@@ -64,6 +67,7 @@ final class DirectionGridConfig
             'filled_any' => false,
             'stopped' => false,
             'wait_close' => false,
+            'test_position' => null,
             'levels' => [],
         ];
     }
@@ -72,6 +76,7 @@ final class DirectionGridConfig
      * @param mixed $raw
      * @return array{
      *   enabled: bool,
+     *   test_mode: bool,
      *   mode: 'high'|'low',
      *   period_minutes: int,
      *   profit: float|int,
@@ -117,6 +122,7 @@ final class DirectionGridConfig
 
         return [
             'enabled' => self::toBool($raw['enabled'] ?? false),
+            'test_mode' => self::toBool($raw['test_mode'] ?? false),
             'mode' => $mode,
             'period_minutes' => $period,
             'profit' => isset($raw['profit']) && is_numeric($raw['profit']) ? max(0.01, 0 + $raw['profit']) : $defaults['profit'],
@@ -130,6 +136,7 @@ final class DirectionGridConfig
      * @param array<string, mixed> $post
      * @return array{
      *   enabled: bool,
+     *   test_mode: bool,
      *   mode: 'high'|'low',
      *   period_minutes: int,
      *   profit: float|int,
@@ -152,6 +159,7 @@ final class DirectionGridConfig
 
         return self::normalize([
             'enabled' => isset($post['dg_enabled']),
+            'test_mode' => isset($post['dg_test_mode']),
             'mode' => $post['dg_mode'] ?? 'high',
             'period_minutes' => $post['dg_period_minutes'] ?? 60,
             'profit' => $post['dg_profit'] ?? 300,
@@ -171,6 +179,7 @@ final class DirectionGridConfig
      *   filled_any: bool,
      *   stopped: bool,
      *   wait_close: bool,
+     *   test_position: array{open: bool, side: ?string, entry: float|null}|null,
      *   levels: list<array{index: int, link_id: string, status: string, price: float|null}>
      * }
      */
@@ -196,6 +205,16 @@ final class DirectionGridConfig
             }
         }
 
+        $testPosition = null;
+        if (isset($raw['test_position']) && is_array($raw['test_position'])) {
+            $tp = $raw['test_position'];
+            $testPosition = [
+                'open' => self::toBool($tp['open'] ?? false),
+                'side' => isset($tp['side']) && is_string($tp['side']) ? $tp['side'] : null,
+                'entry' => isset($tp['entry']) && is_numeric($tp['entry']) ? 0 + $tp['entry'] : null,
+            ];
+        }
+
         return [
             'grid_id' => isset($raw['grid_id']) && is_string($raw['grid_id']) && $raw['grid_id'] !== ''
                 ? $raw['grid_id']
@@ -206,6 +225,7 @@ final class DirectionGridConfig
             'filled_any' => self::toBool($raw['filled_any'] ?? false),
             'stopped' => self::toBool($raw['stopped'] ?? false),
             'wait_close' => self::toBool($raw['wait_close'] ?? false),
+            'test_position' => $testPosition,
             'levels' => $levels,
         ];
     }

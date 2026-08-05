@@ -755,6 +755,9 @@ $renderLevelRows = static function (array $rows, string $side): void {
                             aria-expanded="false" aria-controls="collapseDirectionGrid">
                         Слежение за хаем/лоем
                         <span class="badge text-bg-secondary ms-2 fw-normal">сетка 3 лимита</span>
+                        <?php if (!empty($directionGrid['test_mode'])): ?>
+                            <span class="badge text-bg-warning ms-2 fw-normal">TEST</span>
+                        <?php endif; ?>
                         <?php if (!empty($directionState['stopped'])): ?>
                             <span class="badge text-bg-danger ms-2 fw-normal">остановлена</span>
                         <?php elseif (!empty($directionState['filled_any'])): ?>
@@ -767,14 +770,21 @@ $renderLevelRows = static function (array $rows, string $side): void {
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                             <p class="text-secondary small mb-0">
                                 High → Buy-лимиты ниже хая; Low → Sell-лимиты выше лоя. Пока нет fill — сетка двигается за экстремумом раз в минуту.
-                                После fill — ждём TP/SL, незаполненные не двигаем. Нужен <code>trading_enabled=1</code>.
+                                После fill — ждём TP/SL, незаполненные не двигаем.
+                                Боевой режим требует <code>trading_enabled=1</code>; тестовый — только логирует эмуляцию.
                             </p>
-                            <div class="d-flex gap-2 align-items-center">
+                            <div class="d-flex gap-2 align-items-center flex-wrap">
                                 <div class="form-check form-switch mb-0">
                                     <input class="form-check-input" type="checkbox" role="switch"
                                            id="dg_enabled" name="dg_enabled" value="1"
                                         <?= !empty($directionGrid['enabled']) ? 'checked' : '' ?>>
                                     <label class="form-check-label small" for="dg_enabled">включена</label>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch"
+                                           id="dg_test_mode" name="dg_test_mode" value="1"
+                                        <?= !empty($directionGrid['test_mode']) ? 'checked' : '' ?>>
+                                    <label class="form-check-label small text-warning" for="dg_test_mode">тестовый режим</label>
                                 </div>
                                 <button type="submit" name="action" value="reset_direction_grid" class="btn btn-sm btn-outline-warning"
                                         onclick="return confirm('Сбросить стратегию слежения?');">Сбросить</button>
