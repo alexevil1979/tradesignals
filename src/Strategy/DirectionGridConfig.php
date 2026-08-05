@@ -53,6 +53,8 @@ final class DirectionGridConfig
      *   filled_any: bool,
      *   stopped: bool,
      *   wait_close: bool,
+     *   force_rebuild: bool,
+     *   settings_sig: ?string,
      *   test_position: array{open: bool, side: ?string, entry: float|null}|null,
      *   levels: list<array{index: int, link_id: string, status: string, price: float|null}>
      * }
@@ -67,9 +69,40 @@ final class DirectionGridConfig
             'filled_any' => false,
             'stopped' => false,
             'wait_close' => false,
+            'force_rebuild' => false,
+            'settings_sig' => null,
             'test_position' => null,
             'levels' => [],
         ];
+    }
+
+    /**
+     * Подпись параметров сетки: при смене — перестановка.
+     *
+     * @param array<string, mixed> $config
+     */
+    public static function signature(array $config): string
+    {
+        $levels = [];
+        foreach (is_array($config['levels'] ?? null) ? $config['levels'] : [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $levels[] = [
+                'offset' => isset($row['offset']) && is_numeric($row['offset']) ? 0 + $row['offset'] : 0,
+                'size' => (string) ($row['size'] ?? ''),
+            ];
+        }
+
+        return hash('sha256', json_encode([
+            'test_mode' => !empty($config['test_mode']),
+            'mode' => (string) ($config['mode'] ?? 'high'),
+            'period_minutes' => (int) ($config['period_minutes'] ?? 0),
+            'profit' => isset($config['profit']) && is_numeric($config['profit']) ? 0 + $config['profit'] : 0,
+            'stop' => isset($config['stop']) && is_numeric($config['stop']) ? 0 + $config['stop'] : 0,
+            'after_tp' => (string) ($config['after_tp'] ?? 'rebuild'),
+            'levels' => $levels,
+        ], JSON_THROW_ON_ERROR));
     }
 
     /**
@@ -179,6 +212,8 @@ final class DirectionGridConfig
      *   filled_any: bool,
      *   stopped: bool,
      *   wait_close: bool,
+     *   force_rebuild: bool,
+     *   settings_sig: ?string,
      *   test_position: array{open: bool, side: ?string, entry: float|null}|null,
      *   levels: list<array{index: int, link_id: string, status: string, price: float|null}>
      * }
@@ -215,6 +250,8 @@ final class DirectionGridConfig
             ];
         }
 
+        $settingsSig = $raw['settings_sig'] ?? null;
+
         return [
             'grid_id' => isset($raw['grid_id']) && is_string($raw['grid_id']) && $raw['grid_id'] !== ''
                 ? $raw['grid_id']
@@ -225,6 +262,8 @@ final class DirectionGridConfig
             'filled_any' => self::toBool($raw['filled_any'] ?? false),
             'stopped' => self::toBool($raw['stopped'] ?? false),
             'wait_close' => self::toBool($raw['wait_close'] ?? false),
+            'force_rebuild' => self::toBool($raw['force_rebuild'] ?? false),
+            'settings_sig' => is_string($settingsSig) && $settingsSig !== '' ? $settingsSig : null,
             'test_position' => $testPosition,
             'levels' => $levels,
         ];

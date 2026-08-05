@@ -60,24 +60,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $settings->set(RangeAlertConfig::SETTING_KEY, json_encode($rangeAlert, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $maTouch = MaTouchConfig::fromPost($_POST);
             $settings->set(MaTouchConfig::SETTING_KEY, json_encode($maTouch, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $prevDirectionRaw = $settings->get(DirectionGridConfig::SETTING_KEY);
+            $prevDirectionDecoded = null;
+            if (is_string($prevDirectionRaw) && $prevDirectionRaw !== '') {
+                try {
+                    $prevDirectionDecoded = json_decode($prevDirectionRaw, true, 512, JSON_THROW_ON_ERROR);
+                } catch (Throwable) {
+                    $prevDirectionDecoded = null;
+                }
+            }
+            $prevDirection = DirectionGridConfig::normalize($prevDirectionDecoded);
+
             $directionGrid = DirectionGridConfig::fromPost($_POST);
             $settings->set(DirectionGridConfig::SETTING_KEY, json_encode($directionGrid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+
+            $rawState = $settings->get(DirectionGridConfig::STATE_KEY);
+            $decodedState = null;
+            if (is_string($rawState) && $rawState !== '') {
+                try {
+                    $decodedState = json_decode($rawState, true, 512, JSON_THROW_ON_ERROR);
+                } catch (Throwable) {
+                    $decodedState = null;
+                }
+            }
+            $state = DirectionGridConfig::normalizeState($decodedState);
+            $stateChanged = false;
             // Ручное включение снимает runtime-stop.
-            if (!empty($directionGrid['enabled'])) {
-                $rawState = $settings->get(DirectionGridConfig::STATE_KEY);
-                $decodedState = null;
-                if (is_string($rawState) && $rawState !== '') {
-                    try {
-                        $decodedState = json_decode($rawState, true, 512, JSON_THROW_ON_ERROR);
-                    } catch (Throwable) {
-                        $decodedState = null;
-                    }
-                }
-                $state = DirectionGridConfig::normalizeState($decodedState);
-                if ($state['stopped']) {
-                    $state['stopped'] = false;
-                    $settings->set(DirectionGridConfig::STATE_KEY, json_encode($state, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
-                }
+            if (!empty($directionGrid['enabled']) && $state['stopped']) {
+                $state['stopped'] = false;
+                $stateChanged = true;
+            }
+            // Смена параметров сетки → перестановка на следующем тике (сохраняем link_id для отмены).
+            if (DirectionGridConfig::signature($prevDirection) !== DirectionGridConfig::signature($directionGrid)) {
+                $state['force_rebuild'] = true;
+                $stateChanged = true;
+            }
+            if ($stateChanged) {
+                $settings->set(DirectionGridConfig::STATE_KEY, json_encode($state, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             }
             $flash = 'Стратегии сохранены.';
         }

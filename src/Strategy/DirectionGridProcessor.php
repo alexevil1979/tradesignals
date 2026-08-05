@@ -69,6 +69,23 @@ final class DirectionGridProcessor
 
         $state = $this->syncLevelStatuses($symbol, $state, $config, $side, $lastClose);
         $openPosition = $this->resolveOpenPosition($symbol, $state, $lastClose);
+        $settingsSig = DirectionGridConfig::signature($config);
+        $settingsChanged = !empty($state['force_rebuild'])
+            || ($state['settings_sig'] ?? null) !== $settingsSig;
+
+        if ($settingsChanged) {
+            return $this->rebuildAfterSettingsChange(
+                $symbol,
+                $config,
+                $state,
+                $openPosition,
+                $anchor,
+                $side,
+                $lastClose,
+                $settingsSig,
+                $mode,
+            );
+        }
 
         if (!empty($state['filled_any']) || !empty($state['wait_close'])) {
             return $this->handleFilledPhase($symbol, $config, $state, $openPosition, $anchor, $side);
@@ -91,13 +108,89 @@ final class DirectionGridProcessor
         $reason = $state['grid_id'] === null || $state['levels'] === []
             ? 'нет сетки'
             : ($this->anchorChanged($state['anchor'], $anchor) ? 'экстремум изменился' : 'пропали open-ордера');
+
+        return $this->replaceGrid($symbol, $config, $state, $anchor, $side, $lastClose, $mode, $reason);
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     * @param array<string, mixed> $state
+     * @param array<string, mixed>|null $openPosition
+     */
+    private function rebuildAfterSettingsChange(
+        string $symbol,
+        array $config,
+        array $state,
+        ?array $openPosition,
+        float $anchor,
+        string $side,
+        ?float $lastClose,
+        string $settingsSig,
+        string $mode,
+    ): int {
+        $this->logInfo('настройки изменились, перестройка сетки.', [
+            'prev_sig' => $state['settings_sig'] ?? null,
+            'sig' => $settingsSig,
+            'has_position' => $openPosition !== null,
+        ]);
+
+        $actions = $this->cancelGridLevels($symbol, $state);
+
+        if ($openPosition !== null) {
+            // Открытую позицию не трогаем; незаполненные сняли; ждём TP/SL, потом новая сетка.
+            $state['levels'] = [];
+            $state['grid_id'] = null;
+            $state['settings_sig'] = $settingsSig;
+            $state['force_rebuild'] = false;
+            $state['filled_any'] = true;
+            $state['wait_close'] = true;
+            $this->saveState($state);
+            $this->logInfo('есть открытая позиция — новая сетка после закрытия.', [
+                'side' => $openPosition['side'] ?? null,
+            ]);
+
+            return $actions;
+        }
+
+        $state['levels'] = [];
+        $state['filled_any'] = false;
+        $state['wait_close'] = false;
+        $state['test_position'] = null;
+        $state['force_rebuild'] = false;
+
+        return $actions + $this->replaceGrid(
+            $symbol,
+            $config,
+            $state,
+            $anchor,
+            $side,
+            $lastClose,
+            $mode,
+            'настройки изменились',
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     * @param array<string, mixed> $state
+     */
+    private function replaceGrid(
+        string $symbol,
+        array $config,
+        array $state,
+        float $anchor,
+        string $side,
+        ?float $lastClose,
+        string $mode,
+        string $reason,
+    ): int {
         $this->logInfo('перестановка сетки.', [
             'reason' => $reason,
             'anchor' => $anchor,
-            'prev_anchor' => $state['anchor'],
+            'prev_anchor' => $state['anchor'] ?? null,
         ]);
 
-        $actions += $this->cancelGridLevels($symbol, $state);
+        $actions = $this->cancelGridLevels($symbol, $state);
         $placed = $this->placeGrid($symbol, $config, $anchor, $side, $lastClose);
         $this->saveState($placed);
         $actions += count($placed['levels']);
@@ -494,6 +587,8 @@ final class DirectionGridProcessor
             'filled_any' => false,
             'stopped' => false,
             'wait_close' => false,
+            'force_rebuild' => false,
+            'settings_sig' => DirectionGridConfig::signature($config),
             'test_position' => null,
             'levels' => $levels,
         ];
