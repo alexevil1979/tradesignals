@@ -4,6 +4,7 @@ declare(strict_types=1);
 use App\Auth\AdminAuth;
 use App\Database\SettingsRepository;
 use App\Strategy\CandleRepository;
+use App\Strategy\DirectionGridConfig;
 use App\Strategy\LevelGridConfig;
 use App\Strategy\MaTouchConfig;
 use App\Strategy\RangeAlertConfig;
@@ -45,6 +46,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $maTouch = MaTouchConfig::defaults();
             $settings->set(MaTouchConfig::SETTING_KEY, json_encode($maTouch, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $flash = 'Стратегия MA28 сброшена.';
+        } elseif ($action === 'reset_direction_grid') {
+            $directionGrid = DirectionGridConfig::defaults();
+            $settings->set(DirectionGridConfig::SETTING_KEY, json_encode($directionGrid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $settings->set(DirectionGridConfig::STATE_KEY, json_encode(DirectionGridConfig::defaultState(), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $flash = 'Стратегия слежения сброшена.';
         } else {
             $grid = SignalGridConfig::fromPost($_POST);
             $settings->set(SignalGridConfig::SETTING_KEY, json_encode($grid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
@@ -54,6 +60,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $settings->set(RangeAlertConfig::SETTING_KEY, json_encode($rangeAlert, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $maTouch = MaTouchConfig::fromPost($_POST);
             $settings->set(MaTouchConfig::SETTING_KEY, json_encode($maTouch, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $directionGrid = DirectionGridConfig::fromPost($_POST);
+            $settings->set(DirectionGridConfig::SETTING_KEY, json_encode($directionGrid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            // Ручное включение снимает runtime-stop.
+            if (!empty($directionGrid['enabled'])) {
+                $rawState = $settings->get(DirectionGridConfig::STATE_KEY);
+                $decodedState = null;
+                if (is_string($rawState) && $rawState !== '') {
+                    try {
+                        $decodedState = json_decode($rawState, true, 512, JSON_THROW_ON_ERROR);
+                    } catch (Throwable) {
+                        $decodedState = null;
+                    }
+                }
+                $state = DirectionGridConfig::normalizeState($decodedState);
+                if ($state['stopped']) {
+                    $state['stopped'] = false;
+                    $settings->set(DirectionGridConfig::STATE_KEY, json_encode($state, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+                }
+            }
             $flash = 'Стратегии сохранены.';
         }
     }
@@ -107,11 +132,34 @@ if (is_string($rawMaTouch) && $rawMaTouch !== '') {
 }
 $maTouch = MaTouchConfig::normalize($decodedMaTouch);
 
+$rawDirection = $settings->get(DirectionGridConfig::SETTING_KEY);
+$decodedDirection = null;
+if (is_string($rawDirection) && $rawDirection !== '') {
+    try {
+        $decodedDirection = json_decode($rawDirection, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        $decodedDirection = null;
+    }
+}
+$directionGrid = DirectionGridConfig::normalize($decodedDirection);
+
+$rawDgState = $settings->get(DirectionGridConfig::STATE_KEY);
+$decodedDgState = null;
+if (is_string($rawDgState) && $rawDgState !== '') {
+    try {
+        $decodedDgState = json_decode($rawDgState, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        $decodedDgState = null;
+    }
+}
+$directionState = DirectionGridConfig::normalizeState($decodedDgState);
+
 $symbol = (string) $config['bybit']['symbol'];
 $lastPrice = null;
 $range12h = null;
 $range24h = null;
 $range48h = null;
+$dgExtremum = null;
 try {
     $candleRepo = new CandleRepository($pdo);
     $m1 = $candleRepo->latestConfirmed($symbol, '1', 1);
@@ -121,11 +169,13 @@ try {
     $range12h = $candleRepo->extremumLastHours($symbol, '1', 12);
     $range24h = $candleRepo->extremumLastHours($symbol, '1', 24);
     $range48h = $candleRepo->extremumLastHours($symbol, '1', 48);
+    $dgExtremum = $candleRepo->extremumLastMinutes($symbol, '1', (int) $directionGrid['period_minutes']);
 } catch (Throwable) {
     $lastPrice = null;
     $range12h = null;
     $range24h = null;
     $range48h = null;
+    $dgExtremum = null;
 }
 
 $csrfToken = htmlspecialchars($auth->csrfToken(), ENT_QUOTES, 'UTF-8');
@@ -152,6 +202,26 @@ $low48Label = $range48h !== null
 $high48Label = $range48h !== null
     ? htmlspecialchars(RangeAlertConfig::formatPrice($range48h['high']), ENT_QUOTES, 'UTF-8')
     : null;
+
+$dgAnchor = null;
+$dgPreviewPrices = [];
+$dgPreviewTp = null;
+$dgPreviewSl = null;
+if ($dgExtremum !== null) {
+    $dgAnchor = $directionGrid['mode'] === 'low' ? $dgExtremum['low'] : $dgExtremum['high'];
+    foreach ($directionGrid['levels'] as $lvl) {
+        $offset = (float) $lvl['offset'];
+        $dgPreviewPrices[] = $directionGrid['mode'] === 'low'
+            ? $dgAnchor + $offset
+            : $dgAnchor - $offset;
+    }
+    $dgPreviewTp = $directionGrid['mode'] === 'low'
+        ? $dgAnchor - (float) $directionGrid['profit']
+        : $dgAnchor + (float) $directionGrid['profit'];
+    $dgPreviewSl = $directionGrid['mode'] === 'low'
+        ? $dgAnchor + (float) $directionGrid['stop']
+        : $dgAnchor - (float) $directionGrid['stop'];
+}
 
 /**
  * @param list<array<string, mixed>> $rows
@@ -243,7 +313,7 @@ $renderLevelRows = static function (array $rows, string $side): void {
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
             <h1 class="h3 mb-1">Стратегии</h1>
-            <p class="text-secondary mb-0">Сетка баров, уровни, диапазон и касание MA28. Сохранение применяется ко всем стратегиям.</p>
+            <p class="text-secondary mb-0">Сетка баров, уровни, диапазон, MA28 и слежение за хаем/лоем. Сохранение применяется ко всем стратегиям.</p>
         </div>
         <div class="d-flex gap-2">
             <button type="submit" form="strategies-form" name="action" value="save" class="btn btn-success">Сохранить всё</button>
@@ -677,6 +747,137 @@ $renderLevelRows = static function (array $rows, string $side): void {
                     </div>
                 </div>
             </div>
+
+            <div class="accordion-item bg-black border-secondary mt-3">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed bg-dark text-light" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#collapseDirectionGrid"
+                            aria-expanded="false" aria-controls="collapseDirectionGrid">
+                        Слежение за хаем/лоем
+                        <span class="badge text-bg-secondary ms-2 fw-normal">сетка 3 лимита</span>
+                        <?php if (!empty($directionState['stopped'])): ?>
+                            <span class="badge text-bg-danger ms-2 fw-normal">остановлена</span>
+                        <?php elseif (!empty($directionState['filled_any'])): ?>
+                            <span class="badge text-bg-info ms-2 fw-normal">ждём TP/SL</span>
+                        <?php endif; ?>
+                    </button>
+                </h2>
+                <div id="collapseDirectionGrid" class="accordion-collapse collapse">
+                    <div class="accordion-body">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                            <p class="text-secondary small mb-0">
+                                High → Buy-лимиты ниже хая; Low → Sell-лимиты выше лоя. Пока нет fill — сетка двигается за экстремумом раз в минуту.
+                                После fill — ждём TP/SL, незаполненные не двигаем. Нужен <code>trading_enabled=1</code>.
+                            </p>
+                            <div class="d-flex gap-2 align-items-center">
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch"
+                                           id="dg_enabled" name="dg_enabled" value="1"
+                                        <?= !empty($directionGrid['enabled']) ? 'checked' : '' ?>>
+                                    <label class="form-check-label small" for="dg_enabled">включена</label>
+                                </div>
+                                <button type="submit" name="action" value="reset_direction_grid" class="btn btn-sm btn-outline-warning"
+                                        onclick="return confirm('Сбросить стратегию слежения?');">Сбросить</button>
+                            </div>
+                        </div>
+
+                        <div class="card bg-black border-secondary mb-3">
+                            <div class="card-body py-3">
+                                <div class="row g-3 align-items-end">
+                                    <div class="col-6 col-md-3 col-xl-2">
+                                        <label class="form-label small text-secondary mb-1" for="dg_mode">направление</label>
+                                        <select class="form-select form-select-sm bg-dark text-light border-secondary" id="dg_mode" name="dg_mode">
+                                            <option value="high" <?= $directionGrid['mode'] === 'high' ? 'selected' : '' ?>>за хаем (Buy)</option>
+                                            <option value="low" <?= $directionGrid['mode'] === 'low' ? 'selected' : '' ?>>за лоем (Sell)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6 col-md-3 col-xl-2">
+                                        <label class="form-label small text-secondary mb-1" for="dg_period_minutes">период</label>
+                                        <select class="form-select form-select-sm bg-dark text-light border-secondary" id="dg_period_minutes" name="dg_period_minutes">
+                                            <?php
+                                            $periodLabels = [15 => '15м', 60 => '1ч', 240 => '4ч', 1440 => '24ч', 2880 => '48ч'];
+                                            foreach ($periodLabels as $mins => $label):
+                                            ?>
+                                                <option value="<?= $mins ?>" <?= (int) $directionGrid['period_minutes'] === $mins ? 'selected' : '' ?>><?= $label ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-6 col-md-3 col-xl-2">
+                                        <label class="form-label small text-secondary mb-1" for="dg_profit">профит $</label>
+                                        <input class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               type="number" step="any" min="0.01" id="dg_profit" name="dg_profit"
+                                               value="<?= htmlspecialchars((string) $directionGrid['profit'], ENT_QUOTES, 'UTF-8') ?>">
+                                    </div>
+                                    <div class="col-6 col-md-3 col-xl-2">
+                                        <label class="form-label small text-secondary mb-1" for="dg_stop">стоп $</label>
+                                        <input class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               type="number" step="any" min="0.01" id="dg_stop" name="dg_stop"
+                                               value="<?= htmlspecialchars((string) $directionGrid['stop'], ENT_QUOTES, 'UTF-8') ?>">
+                                    </div>
+                                    <div class="col-6 col-md-3 col-xl-2">
+                                        <label class="form-label small text-secondary mb-1" for="dg_after_tp">после профита</label>
+                                        <select class="form-select form-select-sm bg-dark text-light border-secondary" id="dg_after_tp" name="dg_after_tp">
+                                            <option value="rebuild" <?= $directionGrid['after_tp'] === 'rebuild' ? 'selected' : '' ?>>новая сетка</option>
+                                            <option value="stop" <?= $directionGrid['after_tp'] === 'stop' ? 'selected' : '' ?>>остановить</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="table-responsive mt-3">
+                                    <table class="table table-sm table-dark table-bordered mb-0 align-middle">
+                                        <thead>
+                                        <tr>
+                                            <th class="text-center small">#</th>
+                                            <th class="text-center small">отступ $</th>
+                                            <th class="text-center small">объём</th>
+                                            <th class="text-center small">цена (превью)</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody>
+                                        <?php for ($i = 0; $i < 3; $i++): ?>
+                                            <?php
+                                            $lvl = $directionGrid['levels'][$i];
+                                            $preview = $dgPreviewPrices[$i] ?? null;
+                                            ?>
+                                            <tr>
+                                                <td class="text-center text-secondary">L<?= $i + 1 ?></td>
+                                                <td>
+                                                    <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                                                           type="number" step="any" min="0.01"
+                                                           name="dg_level[<?= $i ?>][offset]"
+                                                           value="<?= htmlspecialchars((string) $lvl['offset'], ENT_QUOTES, 'UTF-8') ?>">
+                                                </td>
+                                                <td>
+                                                    <input class="form-control form-control-sm bg-dark text-light border-secondary text-center"
+                                                           type="text" inputmode="decimal"
+                                                           name="dg_level[<?= $i ?>][size]"
+                                                           value="<?= htmlspecialchars((string) $lvl['size'], ENT_QUOTES, 'UTF-8') ?>">
+                                                </td>
+                                                <td class="text-center small text-info">
+                                                    <?= $preview !== null ? htmlspecialchars(DirectionGridConfig::formatPrice($preview), ENT_QUOTES, 'UTF-8') : '—' ?>
+                                                </td>
+                                            </tr>
+                                        <?php endfor; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div class="small text-secondary mt-3">
+                                    <?php if ($dgAnchor !== null): ?>
+                                        Экстремум периода:
+                                        <strong class="text-info"><?= htmlspecialchars(DirectionGridConfig::formatPrice($dgAnchor), ENT_QUOTES, 'UTF-8') ?></strong>
+                                        · TP: <strong class="text-success"><?= htmlspecialchars(DirectionGridConfig::formatPrice((float) $dgPreviewTp), ENT_QUOTES, 'UTF-8') ?></strong>
+                                        · SL: <strong class="text-danger"><?= htmlspecialchars(DirectionGridConfig::formatPrice((float) $dgPreviewSl), ENT_QUOTES, 'UTF-8') ?></strong>
+                                        · цена: <strong><?= $lastPriceLabel ?></strong>
+                                    <?php else: ?>
+                                        Нет данных экстремума за период — загрузите свечи M1.
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </form>
 </main>
@@ -712,8 +913,9 @@ $renderLevelRows = static function (array $rows, string $side): void {
                 collapseLevels: false,
                 collapseRange: false,
                 collapseMaTouch: false,
+                collapseDirectionGrid: false,
             });
-            ['collapseBars', 'collapseLevels', 'collapseRange', 'collapseMaTouch'].forEach((id) => {
+            ['collapseBars', 'collapseLevels', 'collapseRange', 'collapseMaTouch', 'collapseDirectionGrid'].forEach((id) => {
                 const pane = document.getElementById(id);
                 const btn = accordion.querySelector(`[data-bs-target="#${id}"]`);
                 if (!pane || !btn) {

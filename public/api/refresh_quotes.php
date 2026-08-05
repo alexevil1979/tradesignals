@@ -2,11 +2,16 @@
 declare(strict_types=1);
 
 use App\Auth\AdminAuth;
+use App\Bybit\Client;
+use App\Bybit\InstrumentService;
 use App\Bybit\KlineService;
+use App\Bybit\OrderService;
+use App\Bybit\PositionService;
 use App\Database\SettingsRepository;
 use App\Helpers\Intervals;
 use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
+use App\Strategy\DirectionGridProcessor;
 use App\Strategy\LevelGridProcessor;
 use App\Strategy\MaTouchProcessor;
 use App\Strategy\RangeAlertProcessor;
@@ -121,7 +126,29 @@ try {
                     $telegram,
                     $logger,
                 ))->process($symbol);
-                $signalsCreated = $barCreated + $levelCreated + $rangeCreated + $maTouchCreated;
+
+                $directionCreated = 0;
+                try {
+                    $bybitConfig = $config['bybit'] + ['max_retries' => $config['trading']['max_api_retries']];
+                    $client = new Client($bybitConfig, $logger);
+                    $instruments = new InstrumentService($client);
+                    $directionCreated = (new DirectionGridProcessor(
+                        $settings,
+                        $candleRepo,
+                        new OrderService($client, $pdo, $logger, $instruments),
+                        new PositionService($client, $pdo),
+                        $instruments,
+                        $telegram,
+                        $logger,
+                        $settings->get('trading_enabled', '0') === '1',
+                    ))->process($symbol);
+                } catch (Throwable $exception) {
+                    $logger->error('Direction grid: ошибка обработки с Dashboard.', [
+                        'error' => $exception->getMessage(),
+                    ], 'trading');
+                }
+
+                $signalsCreated = $barCreated + $levelCreated + $rangeCreated + $maTouchCreated + $directionCreated;
                 $logger->info('Обработка матрицы сигналов с Dashboard.', [
                     'symbol' => $symbol,
                     'created' => $signalsCreated,
@@ -129,6 +156,7 @@ try {
                     'levels' => $levelCreated,
                     'range' => $rangeCreated,
                     'ma_touch' => $maTouchCreated,
+                    'direction_grid' => $directionCreated,
                 ], 'cron');
             } finally {
                 if (is_resource($lock)) {

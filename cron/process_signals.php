@@ -12,6 +12,7 @@ use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
 use App\Strategy\GridManager;
 use App\Strategy\RuleEngine;
+use App\Strategy\DirectionGridProcessor;
 use App\Strategy\LevelGridProcessor;
 use App\Strategy\MaTouchConfig;
 use App\Strategy\MaTouchProcessor;
@@ -119,15 +120,35 @@ $maTouchCreated = (new MaTouchProcessor(
     $telegram,
     $logger,
 ))->process($symbol);
+
+$bybitConfig = $config['bybit'] + ['max_retries' => $config['trading']['max_api_retries']];
+$client = new Client($bybitConfig, $logger);
+$instruments = new InstrumentService($client);
+$orderService = new OrderService($client, $pdo, $logger, $instruments);
+$positionService = new PositionService($client, $pdo);
+$tradingEnabled = $settings->get('trading_enabled', '0') === '1';
+
+$directionCreated = (new DirectionGridProcessor(
+    $settings,
+    $candleRepository,
+    $orderService,
+    $positionService,
+    $instruments,
+    $telegram,
+    $logger,
+    $tradingEnabled,
+))->process($symbol);
+
 $logger->info('Обработка матрицы сигналов завершена.', [
     'symbol' => $symbol,
-    'created' => $gridCreated + $levelCreated + $rangeCreated + $maTouchCreated,
+    'created' => $gridCreated + $levelCreated + $rangeCreated + $maTouchCreated + $directionCreated,
     'bars' => $gridCreated,
     'levels' => $levelCreated,
     'range' => $rangeCreated,
     'ma_touch' => $maTouchCreated,
+    'direction_grid' => $directionCreated,
 ], 'cron');
-echo "Матрица сигналов: бары {$gridCreated}, уровни {$levelCreated}, диапазон {$rangeCreated}, MA28 {$maTouchCreated}.\n";
+echo "Матрица сигналов: бары {$gridCreated}, уровни {$levelCreated}, диапазон {$rangeCreated}, MA28 {$maTouchCreated}, сетка {$directionCreated}.\n";
 
 $strategies = (new StrategyRepository($pdo))->active();
 if (count($strategies) > 1) {
@@ -153,18 +174,16 @@ if (count($candles) < $strategy['min_count'] + 1) {
     exit;
 }
 
-$bybitConfig = $config['bybit'] + ['max_retries' => $config['trading']['max_api_retries']];
-$client = new Client($bybitConfig, $logger);
 $processor = new TradingProcessor(
     new RuleEngine(new CandleAnalyzer()),
     new GridManager(),
     $signalRepository,
-    new OrderService($client, $pdo, $logger),
-    new PositionService($client, $pdo),
-    new InstrumentService($client),
+    $orderService,
+    $positionService,
+    $instruments,
     $telegram,
     $logger,
-    $settings->get('trading_enabled', '0') === '1',
+    $tradingEnabled,
 );
 $processor->process($strategy, $symbol, $candles);
 $logger->info('Обработка классической стратегии завершена.', ['strategy_id' => $strategy['id']], 'cron');

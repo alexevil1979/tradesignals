@@ -97,14 +97,14 @@ final class CandleRepository
     }
 
     /**
-     * Min low / max high за последние $hours часов (по confirmed свечам).
+     * Min low / max high за последние $minutes минут (по confirmed свечам).
      *
      * @return array{low: float, high: float}|null
      */
-    public function extremumLastHours(string $symbol, string $interval, int $hours = 12): ?array
+    public function extremumLastMinutes(string $symbol, string $interval, int $minutes = 15): ?array
     {
-        $hours = max(1, $hours);
-        $since = gmdate('Y-m-d H:i:s', time() - ($hours * 3600));
+        $minutes = max(1, $minutes);
+        $since = gmdate('Y-m-d H:i:s', time() - ($minutes * 60));
         $statement = $this->pdo->prepare(
             'SELECT MIN(low_price) AS low_price, MAX(high_price) AS high_price
              FROM candles
@@ -127,5 +127,15 @@ final class CandleRepository
             'low' => (float) $row['low_price'],
             'high' => (float) $row['high_price'],
         ];
+    }
+
+    /**
+     * Min low / max high за последние $hours часов (по confirmed свечам).
+     *
+     * @return array{low: float, high: float}|null
+     */
+    public function extremumLastHours(string $symbol, string $interval, int $hours = 12): ?array
+    {
+        return $this->extremumLastMinutes($symbol, $interval, max(1, $hours * 60));
     }
 }
