@@ -27,6 +27,7 @@ final class OrderService
         ?int $strategyId = null,
         ?int $signalId = null,
         bool $reduceOnly = false,
+        ?int $positionIdx = null,
     ): array {
         $orderLinkId = 'bot-' . bin2hex(random_bytes(12));
         $payload = array_filter([
@@ -39,6 +40,8 @@ final class OrderService
             'takeProfit' => $takeProfit,
             'stopLoss' => $stopLoss,
             'reduceOnly' => $reduceOnly,
+            // Hedge mode, как в example/bbb: Buy=1 (Long), Sell=2 (Short).
+            'positionIdx' => $positionIdx ?? self::hedgePositionIdx($side),
         ], static fn (mixed $value): bool => $value !== null && $value !== false);
         $response = $this->client->privateRequest('POST', '/v5/order/create', $payload);
         $result = $response['result'];
@@ -101,6 +104,8 @@ final class OrderService
             'takeProfit' => $takeProfit,
             'stopLoss' => $stopLoss,
             'reduceOnly' => false,
+            // Hedge mode, как в example/bbb/bothour/bybit_bot.php.
+            'positionIdx' => self::hedgePositionIdx($side),
         ], static fn (mixed $value): bool => $value !== null && $value !== false);
 
         $response = $this->client->privateRequest('POST', '/v5/order/create', $payload);
@@ -193,8 +198,13 @@ final class OrderService
     /** @param array<string, mixed> $position */
     public function closePosition(string $symbol, array $position, ?int $signalId = null): array
     {
-        $side = ($position['side'] ?? '') === 'Buy' ? 'Sell' : 'Buy';
+        $posSide = (string) ($position['side'] ?? '');
+        $side = $posSide === 'Buy' ? 'Sell' : 'Buy';
         $quantity = (string) ($position['size'] ?? '0');
+        // Idx берём у позиции (не у стороны закрывающего ордера).
+        $positionIdx = isset($position['positionIdx']) && is_numeric($position['positionIdx'])
+            ? (int) $position['positionIdx']
+            : self::hedgePositionIdx($posSide === '' ? $side : $posSide);
 
         return $this->placeMarketOrder(
             symbol: $symbol,
@@ -203,7 +213,17 @@ final class OrderService
             strategyId: null,
             signalId: $signalId,
             reduceOnly: true,
+            positionIdx: $positionIdx,
         );
+    }
+
+    /**
+     * Hedge mode Bybit linear: 1 = Long (Buy), 2 = Short (Sell).
+     * One-way mode использует 0 — у аккаунта из логов включён hedge.
+     */
+    private static function hedgePositionIdx(string $side): int
+    {
+        return $side === 'Buy' ? 1 : 2;
     }
 
     /**
