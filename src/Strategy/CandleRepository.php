@@ -77,6 +77,26 @@ final class CandleRepository
     }
 
     /**
+     * @return list<array{open_time:string,open_price:string,high_price:string,low_price:string,close_price:string}>
+     */
+    public function latestConfirmedOhlc(string $symbol, string $interval, int $limit): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT open_time, open_price, high_price, low_price, close_price
+             FROM candles
+             WHERE symbol = :symbol AND interval_code = :interval AND is_confirmed = 1
+             ORDER BY open_time DESC
+             LIMIT :limit'
+        );
+        $statement->bindValue('symbol', $symbol);
+        $statement->bindValue('interval', $interval);
+        $statement->bindValue('limit', max(2, $limit), PDO::PARAM_INT);
+        $statement->execute();
+
+        return array_reverse($statement->fetchAll());
+    }
+
+    /**
      * Min low / max high за последние $hours часов (по confirmed свечам).
      *
      * @return array{low: float, high: float}|null

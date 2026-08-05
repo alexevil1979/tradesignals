@@ -13,6 +13,8 @@ use App\Strategy\CandleRepository;
 use App\Strategy\GridManager;
 use App\Strategy\RuleEngine;
 use App\Strategy\LevelGridProcessor;
+use App\Strategy\MaTouchConfig;
+use App\Strategy\MaTouchProcessor;
 use App\Strategy\RangeAlertProcessor;
 use App\Strategy\SignalGridConfig;
 use App\Strategy\SignalGridProcessor;
@@ -49,18 +51,30 @@ try {
         }
     }
     $grid = SignalGridConfig::normalize($decodedGrid);
+    $rawMa = $settings->get(MaTouchConfig::SETTING_KEY);
+    $decodedMa = null;
+    if (is_string($rawMa) && $rawMa !== '') {
+        try {
+            $decodedMa = json_decode($rawMa, true, 512, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            $decodedMa = null;
+        }
+    }
+    $maTouch = MaTouchConfig::normalize($decodedMa);
     $map = Intervals::chartMap();
+    $tfsToSync = [];
     foreach (SignalGridConfig::TIMEFRAMES as $tf) {
-        $hasSignal = false;
         foreach ($grid['timeframes'][$tf] ?? [] as $row) {
             if (!empty($row['signal'])) {
-                $hasSignal = true;
+                $tfsToSync[$tf] = true;
                 break;
             }
         }
-        if (!$hasSignal) {
-            continue;
+        if (!empty($maTouch['timeframes'][$tf])) {
+            $tfsToSync[$tf] = true;
         }
+    }
+    foreach (array_keys($tfsToSync) as $tf) {
         $code = $map[$tf] ?? null;
         if ($code === null) {
             continue;
@@ -98,14 +112,22 @@ $rangeCreated = (new RangeAlertProcessor(
     $telegram,
     $logger,
 ))->process($symbol);
+$maTouchCreated = (new MaTouchProcessor(
+    $settings,
+    $candleRepository,
+    $signalRepository,
+    $telegram,
+    $logger,
+))->process($symbol);
 $logger->info('Обработка матрицы сигналов завершена.', [
     'symbol' => $symbol,
-    'created' => $gridCreated + $levelCreated + $rangeCreated,
+    'created' => $gridCreated + $levelCreated + $rangeCreated + $maTouchCreated,
     'bars' => $gridCreated,
     'levels' => $levelCreated,
     'range' => $rangeCreated,
+    'ma_touch' => $maTouchCreated,
 ], 'cron');
-echo "Матрица сигналов: бары {$gridCreated}, уровни {$levelCreated}, диапазон {$rangeCreated}.\n";
+echo "Матрица сигналов: бары {$gridCreated}, уровни {$levelCreated}, диапазон {$rangeCreated}, MA28 {$maTouchCreated}.\n";
 
 $strategies = (new StrategyRepository($pdo))->active();
 if (count($strategies) > 1) {

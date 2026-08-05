@@ -5,6 +5,7 @@ use App\Auth\AdminAuth;
 use App\Database\SettingsRepository;
 use App\Strategy\CandleRepository;
 use App\Strategy\LevelGridConfig;
+use App\Strategy\MaTouchConfig;
 use App\Strategy\RangeAlertConfig;
 use App\Strategy\SignalGridConfig;
 use App\Helpers\ChartUiState;
@@ -40,6 +41,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $settings->set(RangeAlertConfig::SETTING_KEY, json_encode($rangeAlert, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $settings->set(RangeAlertConfig::STATE_KEY, json_encode(RangeAlertConfig::defaultState(), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $flash = 'Диапазон сброшен.';
+        } elseif ($action === 'reset_ma_touch') {
+            $maTouch = MaTouchConfig::defaults();
+            $settings->set(MaTouchConfig::SETTING_KEY, json_encode($maTouch, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $flash = 'Стратегия MA28 сброшена.';
         } else {
             $grid = SignalGridConfig::fromPost($_POST);
             $settings->set(SignalGridConfig::SETTING_KEY, json_encode($grid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
@@ -47,6 +52,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $settings->set(LevelGridConfig::SETTING_KEY, json_encode($levelGrid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $rangeAlert = RangeAlertConfig::fromPost($_POST);
             $settings->set(RangeAlertConfig::SETTING_KEY, json_encode($rangeAlert, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $maTouch = MaTouchConfig::fromPost($_POST);
+            $settings->set(MaTouchConfig::SETTING_KEY, json_encode($maTouch, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $flash = 'Стратегии сохранены.';
         }
     }
@@ -88,6 +95,17 @@ if (is_string($rawRange) && $rawRange !== '') {
     }
 }
 $rangeAlert = RangeAlertConfig::normalize($decodedRange);
+
+$rawMaTouch = $settings->get(MaTouchConfig::SETTING_KEY);
+$decodedMaTouch = null;
+if (is_string($rawMaTouch) && $rawMaTouch !== '') {
+    try {
+        $decodedMaTouch = json_decode($rawMaTouch, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        $decodedMaTouch = null;
+    }
+}
+$maTouch = MaTouchConfig::normalize($decodedMaTouch);
 
 $symbol = (string) $config['bybit']['symbol'];
 $lastPrice = null;
@@ -225,7 +243,7 @@ $renderLevelRows = static function (array $rows, string $side): void {
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
             <h1 class="h3 mb-1">Стратегии</h1>
-            <p class="text-secondary mb-0">Сетка баров, сетка уровней и выход из диапазона. Сохранение применяется ко всем стратегиям.</p>
+            <p class="text-secondary mb-0">Сетка баров, уровни, диапазон и касание MA28. Сохранение применяется ко всем стратегиям.</p>
         </div>
         <div class="d-flex gap-2">
             <button type="submit" form="strategies-form" name="action" value="save" class="btn btn-success">Сохранить всё</button>
@@ -619,6 +637,46 @@ $renderLevelRows = static function (array $rows, string $side): void {
                     </div>
                 </div>
             </div>
+
+            <div class="accordion-item bg-black border-secondary mt-3">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed bg-dark text-light" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#collapseMaTouch"
+                            aria-expanded="false" aria-controls="collapseMaTouch">
+                        Касание MA28
+                        <span class="badge text-bg-secondary ms-2 fw-normal">MA между Low/High</span>
+                    </button>
+                </h2>
+                <div id="collapseMaTouch" class="accordion-collapse collapse">
+                    <div class="accordion-body">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                            <p class="text-secondary small mb-0">
+                                Сигнал по закрытой свече ТФ: если SMA(28) находится между <strong>low</strong> и <strong>high</strong> этой свечи.
+                                Close ≥ MA → LONG, иначе SHORT. Один сигнал на свечу по каждому включённому ТФ.
+                            </p>
+                            <button type="submit" name="action" value="reset_ma_touch" class="btn btn-sm btn-outline-warning"
+                                    onclick="return confirm('Выключить отслеживание MA28 на всех ТФ?');">Сбросить</button>
+                        </div>
+                        <div class="card bg-black border-secondary">
+                            <div class="card-body py-3">
+                                <div class="row g-3">
+                                    <?php foreach (MaTouchConfig::TIMEFRAMES as $tf): ?>
+                                        <div class="col-6 col-md-4 col-xl-2">
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" role="switch"
+                                                       id="ma_touch_<?= $tf ?>"
+                                                       name="ma_touch[<?= $tf ?>]" value="1"
+                                                    <?= !empty($maTouch['timeframes'][$tf]) ? 'checked' : '' ?>>
+                                                <label class="form-check-label" for="ma_touch_<?= $tf ?>"><?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?></label>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </form>
 </main>
@@ -649,8 +707,13 @@ $renderLevelRows = static function (array $rows, string $side): void {
         // Запомнить состояние секций стратегий.
         const accordion = document.getElementById('strategiesAccordion');
         if (accordion) {
-            const saved = readJson(ACCORDION_KEY, { collapseBars: true, collapseLevels: false, collapseRange: false });
-            ['collapseBars', 'collapseLevels', 'collapseRange'].forEach((id) => {
+            const saved = readJson(ACCORDION_KEY, {
+                collapseBars: true,
+                collapseLevels: false,
+                collapseRange: false,
+                collapseMaTouch: false,
+            });
+            ['collapseBars', 'collapseLevels', 'collapseRange', 'collapseMaTouch'].forEach((id) => {
                 const pane = document.getElementById(id);
                 const btn = accordion.querySelector(`[data-bs-target="#${id}"]`);
                 if (!pane || !btn) {

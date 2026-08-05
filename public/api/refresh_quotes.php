@@ -8,6 +8,7 @@ use App\Helpers\Intervals;
 use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
 use App\Strategy\LevelGridProcessor;
+use App\Strategy\MaTouchProcessor;
 use App\Strategy\RangeAlertProcessor;
 use App\Strategy\SignalGridProcessor;
 use App\Strategy\SignalRepository;
@@ -113,13 +114,21 @@ try {
                     $telegram,
                     $logger,
                 ))->process($symbol);
-                $signalsCreated = $barCreated + $levelCreated + $rangeCreated;
+                $maTouchCreated = (new MaTouchProcessor(
+                    $settings,
+                    $candleRepo,
+                    $signalRepo,
+                    $telegram,
+                    $logger,
+                ))->process($symbol);
+                $signalsCreated = $barCreated + $levelCreated + $rangeCreated + $maTouchCreated;
                 $logger->info('Обработка матрицы сигналов с Dashboard.', [
                     'symbol' => $symbol,
                     'created' => $signalsCreated,
                     'bars' => $barCreated,
                     'levels' => $levelCreated,
                     'range' => $rangeCreated,
+                    'ma_touch' => $maTouchCreated,
                 ], 'cron');
             } finally {
                 if (is_resource($lock)) {
