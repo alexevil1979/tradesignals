@@ -119,31 +119,39 @@ try {
                     $telegram,
                     $logger,
                 ))->process($symbol);
-                $maTouchCreated = (new MaTouchProcessor(
-                    $settings,
-                    $candleRepo,
-                    $signalRepo,
-                    $telegram,
-                    $logger,
-                ))->process($symbol);
 
                 $directionCreated = 0;
+                $maTouchCreated = 0;
                 try {
                     $bybitConfig = $config['bybit'] + ['max_retries' => $config['trading']['max_api_retries']];
                     $client = new Client($bybitConfig, $logger);
                     $instruments = new InstrumentService($client);
+                    $orders = new OrderService($client, $pdo, $logger, $instruments);
+                    $positions = new PositionService($client, $pdo);
+                    $tradingEnabled = $settings->get('trading_enabled', '0') === '1';
+                    $maTouchCreated = (new MaTouchProcessor(
+                        $settings,
+                        $candleRepo,
+                        $signalRepo,
+                        $telegram,
+                        $logger,
+                        $orders,
+                        $positions,
+                        $instruments,
+                        $tradingEnabled,
+                    ))->process($symbol);
                     $directionCreated = (new DirectionGridProcessor(
                         $settings,
                         $candleRepo,
-                        new OrderService($client, $pdo, $logger, $instruments),
-                        new PositionService($client, $pdo),
+                        $orders,
+                        $positions,
                         $instruments,
                         $telegram,
                         $logger,
-                        $settings->get('trading_enabled', '0') === '1',
+                        $tradingEnabled,
                     ))->process($symbol);
                 } catch (Throwable $exception) {
-                    $logger->error('Direction grid: ошибка обработки с Dashboard.', [
+                    $logger->error('MA28/Direction grid: ошибка обработки с Dashboard.', [
                         'error' => $exception->getMessage(),
                     ], 'trading');
                 }

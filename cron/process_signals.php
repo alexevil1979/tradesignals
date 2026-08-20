@@ -113,13 +113,6 @@ $rangeCreated = (new RangeAlertProcessor(
     $telegram,
     $logger,
 ))->process($symbol);
-$maTouchCreated = (new MaTouchProcessor(
-    $settings,
-    $candleRepository,
-    $signalRepository,
-    $telegram,
-    $logger,
-))->process($symbol);
 
 $bybitConfig = $config['bybit'] + ['max_retries' => $config['trading']['max_api_retries']];
 $client = new Client($bybitConfig, $logger);
@@ -127,6 +120,18 @@ $instruments = new InstrumentService($client);
 $orderService = new OrderService($client, $pdo, $logger, $instruments);
 $positionService = new PositionService($client, $pdo);
 $tradingEnabled = $settings->get('trading_enabled', '0') === '1';
+
+$maTouchCreated = (new MaTouchProcessor(
+    $settings,
+    $candleRepository,
+    $signalRepository,
+    $telegram,
+    $logger,
+    $orderService,
+    $positionService,
+    $instruments,
+    $tradingEnabled,
+))->process($symbol);
 
 $directionCreated = (new DirectionGridProcessor(
     $settings,

@@ -45,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'reset_ma_touch') {
             $maTouch = MaTouchConfig::defaults();
             $settings->set(MaTouchConfig::SETTING_KEY, json_encode($maTouch, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $settings->set(MaTouchConfig::STATE_KEY, json_encode(MaTouchConfig::defaultState(), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $flash = 'Стратегия MA28 сброшена.';
         } elseif ($action === 'reset_direction_grid') {
             $directionGrid = DirectionGridConfig::defaults();
@@ -732,22 +733,29 @@ $renderLevelRows = static function (array $rows, string $side): void {
                     <button class="accordion-button collapsed bg-dark text-light" type="button"
                             data-bs-toggle="collapse" data-bs-target="#collapseMaTouch"
                             aria-expanded="false" aria-controls="collapseMaTouch">
-                        Касание MA28
-                        <span class="badge text-bg-secondary ms-2 fw-normal">MA между Low/High</span>
+                        MA28
+                        <span class="badge text-bg-secondary ms-2 fw-normal">касание + переходы</span>
+                        <?php if (!empty($maTouch['test_mode'])): ?>
+                            <span class="badge text-bg-warning ms-2 fw-normal">TEST</span>
+                        <?php endif; ?>
                     </button>
                 </h2>
                 <div id="collapseMaTouch" class="accordion-collapse collapse">
                     <div class="accordion-body">
-                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
                             <p class="text-secondary small mb-0">
-                                Сигнал по закрытой свече ТФ: если SMA(28) находится между <strong>low</strong> и <strong>high</strong> этой свечи.
-                                Close ≥ MA → LONG, иначе SHORT. Один сигнал на свечу по каждому включённому ТФ.
+                                <strong>Касание:</strong> SMA(28) между low/high закрытой свечи → сигнал.<br>
+                                <strong>Переход ↓:</strong> close с MA сверху вниз → N обновлений локального лоя → Buy по close − запас.<br>
+                                <strong>Переход ↑:</strong> close с MA снизу вверх → N обновлений локального хая → Sell по close + запас.<br>
+                                TP/SL в $ от цены входа. Боевые ордера: <code>trading_enabled=1</code>; тест — только лог.
                             </p>
                             <button type="submit" name="action" value="reset_ma_touch" class="btn btn-sm btn-outline-warning"
-                                    onclick="return confirm('Выключить отслеживание MA28 на всех ТФ?');">Сбросить</button>
+                                    onclick="return confirm('Сбросить стратегию MA28?');">Сбросить</button>
                         </div>
-                        <div class="card bg-black border-secondary">
+
+                        <div class="card bg-black border-secondary mb-3">
                             <div class="card-body py-3">
+                                <div class="small text-secondary mb-2">Таймфреймы</div>
                                 <div class="row g-3">
                                     <?php foreach (MaTouchConfig::TIMEFRAMES as $tf): ?>
                                         <div class="col-6 col-md-4 col-xl-2">
@@ -760,6 +768,77 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                             </div>
                                         </div>
                                     <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card bg-black border-secondary mb-3">
+                            <div class="card-body py-3">
+                                <div class="d-flex flex-wrap gap-3 align-items-center">
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               id="ma_touch_enabled" name="ma_touch_enabled" value="1"
+                                            <?= !empty($maTouch['touch_enabled']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="ma_touch_enabled">касание MA</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               id="ma_cross_down" name="ma_cross_down" value="1"
+                                            <?= !empty($maTouch['cross_down_enabled']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="ma_cross_down">переход сверху ↓ вниз (Buy)</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               id="ma_cross_up" name="ma_cross_up" value="1"
+                                            <?= !empty($maTouch['cross_up_enabled']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="ma_cross_up">переход снизу ↑ вверх (Sell)</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               id="ma_test_mode" name="ma_test_mode" value="1"
+                                            <?= !empty($maTouch['test_mode']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label text-warning" for="ma_test_mode">тестовый режим</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card bg-black border-secondary">
+                            <div class="card-body py-3">
+                                <div class="row g-3 align-items-end">
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-secondary mb-1" for="ma_local_bars">N обновлений экстремума</label>
+                                        <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               id="ma_local_bars" name="ma_local_bars" min="1" max="50" step="1"
+                                               value="<?= (int) ($maTouch['local_bars'] ?? 3) ?>">
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-secondary mb-1" for="ma_buffer">Запас $</label>
+                                        <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               id="ma_buffer" name="ma_buffer" min="0" step="0.1"
+                                               value="<?= htmlspecialchars((string) ($maTouch['buffer'] ?? 50), ENT_QUOTES, 'UTF-8') ?>">
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-secondary mb-1" for="ma_tp_points">TP $ от входа</label>
+                                        <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               id="ma_tp_points" name="ma_tp_points" min="0.01" step="0.1"
+                                               value="<?= htmlspecialchars((string) ($maTouch['tp_points'] ?? 300), ENT_QUOTES, 'UTF-8') ?>">
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-secondary mb-1" for="ma_sl_points">SL $ от входа</label>
+                                        <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               id="ma_sl_points" name="ma_sl_points" min="0.01" step="0.1"
+                                               value="<?= htmlspecialchars((string) ($maTouch['sl_points'] ?? 900), ENT_QUOTES, 'UTF-8') ?>">
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small text-secondary mb-1" for="ma_order_size">Объём</label>
+                                        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               id="ma_order_size" name="ma_order_size"
+                                               value="<?= htmlspecialchars((string) ($maTouch['order_size'] ?? '0.001'), ENT_QUOTES, 'UTF-8') ?>">
+                                    </div>
+                                </div>
+                                <div class="small text-secondary mt-2">
+                                    Пример ↓: N=3 — три бара, каждый обновивший локальный low; Buy = close третьего − запас; TP = вход+TP$, SL = вход−SL$.
                                 </div>
                             </div>
                         </div>
