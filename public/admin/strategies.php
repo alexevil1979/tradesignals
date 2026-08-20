@@ -815,19 +815,19 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                     <div class="col-6 col-md-2">
                                         <label class="form-label small text-secondary mb-1" for="ma_buffer">Запас $</label>
                                         <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
-                                               id="ma_buffer" name="ma_buffer" min="0" step="0.1"
+                                               id="ma_buffer" name="ma_buffer" min="0" step="any"
                                                value="<?= htmlspecialchars((string) ($maTouch['buffer'] ?? 50), ENT_QUOTES, 'UTF-8') ?>">
                                     </div>
                                     <div class="col-6 col-md-2">
                                         <label class="form-label small text-secondary mb-1" for="ma_tp_points">TP $ от входа</label>
                                         <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
-                                               id="ma_tp_points" name="ma_tp_points" min="0.01" step="0.1"
+                                               id="ma_tp_points" name="ma_tp_points" min="0.01" step="any"
                                                value="<?= htmlspecialchars((string) ($maTouch['tp_points'] ?? 300), ENT_QUOTES, 'UTF-8') ?>">
                                     </div>
                                     <div class="col-6 col-md-2">
                                         <label class="form-label small text-secondary mb-1" for="ma_sl_points">SL $ от входа</label>
                                         <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
-                                               id="ma_sl_points" name="ma_sl_points" min="0.01" step="0.1"
+                                               id="ma_sl_points" name="ma_sl_points" min="0.01" step="any"
                                                value="<?= htmlspecialchars((string) ($maTouch['sl_points'] ?? 900), ENT_QUOTES, 'UTF-8') ?>">
                                     </div>
                                     <div class="col-6 col-md-2">
