@@ -14,7 +14,7 @@ use Throwable;
 /**
  * Сетка лимитов от хая/лоя за период.
  * Пока нет fill — двигаем сетку за экстремумом; после fill — ждём TP/SL.
- * test_mode: эмуляция без Bybit, всё пишется в лог с префиксом [TEST]/[LIVE].
+ * test_mode: эмуляция без Bybit; события в лог и Telegram с меткой [TEST].
  */
 final class DirectionGridProcessor
 {
@@ -402,6 +402,13 @@ final class DirectionGridProcessor
                     'tp' => $tp,
                     'sl' => $sl,
                 ]);
+                $this->notify(sprintf(
+                    "%s <b>Сетка слежения [TEST]</b>\nЦена: <b>%s</b>\nTP: <b>%s</b> · SL: <b>%s</b>",
+                    $hitTp ? '✅ TP' : '🛑 SL',
+                    htmlspecialchars(DirectionGridConfig::formatPrice($lastClose), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    htmlspecialchars(DirectionGridConfig::formatPrice($tp), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    htmlspecialchars(DirectionGridConfig::formatPrice($sl), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+                ));
                 $state['test_position'] = ['open' => false, 'side' => $side, 'entry' => $testPos['entry'] ?? null];
                 $state['filled_any'] = true;
                 $state['wait_close'] = true;
@@ -439,6 +446,13 @@ final class DirectionGridProcessor
                 'price' => $price,
                 'last_close' => $lastClose,
             ]);
+            $this->notify(sprintf(
+                "📥 <b>Fill уровня [TEST]</b>\nУровень: <b>L%s</b>\nЦена ордера: <b>%s</b>\nClose: <b>%s</b>\nСторона: <b>%s</b>",
+                htmlspecialchars((string) ($level['index'] ?? '?'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars(DirectionGridConfig::formatPrice($price), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars(DirectionGridConfig::formatPrice($lastClose), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars($side, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+            ));
             break; // один fill за тик
         }
         unset($level);
@@ -528,23 +542,32 @@ final class DirectionGridProcessor
             }
 
             $linkId = sprintf('%s-L%d', $gridId, $index + 1);
-            if ($this->testMode) {
-                $this->logInfo('эмуляция: постановка лимита.', [
-                    'link_id' => $linkId,
-                    'side' => $side,
-                    'price' => $priceStr,
-                    'qty' => $size,
-                    'tp' => $tpStr,
-                    'sl' => $slStr,
-                ]);
-                $levels[] = [
-                    'index' => $index + 1,
-                    'link_id' => $linkId,
-                    'status' => 'New',
-                    'price' => $price,
-                ];
-                continue;
-            }
+        if ($this->testMode) {
+            $this->logInfo('эмуляция: постановка лимита.', [
+                'link_id' => $linkId,
+                'side' => $side,
+                'price' => $priceStr,
+                'qty' => $size,
+                'tp' => $tpStr,
+                'sl' => $slStr,
+            ]);
+            $this->notify(sprintf(
+                "📌 <b>Лимит [TEST]</b>\n%s @ <b>%s</b>\nQty: <b>%s</b>\nTP: <b>%s</b> · SL: <b>%s</b>\n<code>%s</code>",
+                htmlspecialchars($side, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars($priceStr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars($size, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars($tpStr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars($slStr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars($linkId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+            ));
+            $levels[] = [
+                'index' => $index + 1,
+                'link_id' => $linkId,
+                'status' => 'New',
+                'price' => $price,
+            ];
+            continue;
+        }
 
             try {
                 $this->orders->placeLimitOrder(
@@ -611,6 +634,17 @@ final class DirectionGridProcessor
                     'link_id' => $link,
                     'price' => $level['price'] ?? null,
                 ]);
+                $this->notify(sprintf(
+                    "🗑 <b>Отмена лимита [TEST]</b>\nЦена: <b>%s</b>\n<code>%s</code>",
+                    htmlspecialchars(
+                        isset($level['price']) && is_numeric($level['price'])
+                            ? DirectionGridConfig::formatPrice((float) $level['price'])
+                            : '—',
+                        ENT_QUOTES | ENT_SUBSTITUTE,
+                        'UTF-8'
+                    ),
+                    htmlspecialchars($link, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+                ));
                 $count++;
                 continue;
             }
@@ -708,12 +742,6 @@ final class DirectionGridProcessor
 
     private function notify(string $message): void
     {
-        if ($this->testMode) {
-            // В тесте только лог, без Telegram-спама.
-            $this->logInfo('telegram (не отправлено в TEST): ' . strip_tags($message), []);
-
-            return;
-        }
         try {
             $this->telegram->send($message, ['source' => 'direction_grid']);
         } catch (Throwable) {

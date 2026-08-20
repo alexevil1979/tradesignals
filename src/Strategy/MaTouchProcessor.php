@@ -344,6 +344,17 @@ final class MaTouchProcessor
                     'extreme' => $tfState['local_extreme'],
                     'close' => $closeNow,
                 ]);
+                $this->notifyTelegram(sprintf(
+                    "📉 <b>MA%d экстремум%s</b>\nТФ: <b>%s</b>\nНаправление: <b>%s</b>\nЭкстремум: <b>%s</b>\nClose: <b>%s</b>\nОбновлений: <b>%d/%d</b>",
+                    MaTouchConfig::PERIOD,
+                    $this->testMode ? ' [TEST]' : '',
+                    htmlspecialchars($tf, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    $direction === 'down' ? 'лой ↓' : 'хай ↑',
+                    htmlspecialchars($this->fmt((float) $tfState['local_extreme']), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    htmlspecialchars($this->fmt($closeNow), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    (int) $tfState['updates'],
+                    (int) $config['local_bars']
+                ), $tf);
             }
 
             if ($updated && (int) $tfState['updates'] >= (int) $config['local_bars']) {
@@ -496,17 +507,17 @@ final class MaTouchProcessor
         }
 
         if ($signalId !== null) {
-            $sent = $this->testMode
-                ? false
-                : $this->telegram->send($message, [
+            try {
+                $sent = $this->telegram->send($message, [
                     'signal_id' => $signalId,
                     'tf' => $tf,
                     'source' => 'ma_cross',
                 ]);
-            if ($this->testMode) {
-                $this->logInfo('telegram (не отправлено в TEST): ' . strip_tags($message), ['tf' => $tf]);
-            } elseif ($sent) {
-                $this->signals->markTelegramSent($signalId);
+                if ($sent) {
+                    $this->signals->markTelegramSent($signalId);
+                }
+            } catch (Throwable) {
+                // ignore
             }
         }
 
@@ -543,6 +554,15 @@ final class MaTouchProcessor
                         'tp' => $tp,
                         'sl' => $sl,
                     ]);
+                    $this->notifyTelegram(sprintf(
+                        "%s <b>MA%d переход [TEST]</b>\nТФ: <b>%s</b>\nЦена: <b>%s</b>\nTP: <b>%s</b> · SL: <b>%s</b>",
+                        $hitTp ? '✅ TP' : '🛑 SL',
+                        MaTouchConfig::PERIOD,
+                        htmlspecialchars($tf, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                        htmlspecialchars($this->fmt($lastClose), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                        htmlspecialchars($this->fmt((float) $tp), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                        htmlspecialchars($this->fmt((float) $sl), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+                    ), $tf);
 
                     return MaTouchConfig::emptyTfState();
                 }
@@ -560,6 +580,14 @@ final class MaTouchProcessor
                         'entry' => $entry,
                         'price' => $lastClose,
                     ]);
+                    $this->notifyTelegram(sprintf(
+                        "📥 <b>Fill MA%d [TEST]</b>\nТФ: <b>%s</b>\n%s @ <b>%s</b>\nClose: <b>%s</b>",
+                        MaTouchConfig::PERIOD,
+                        htmlspecialchars($tf, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                        htmlspecialchars($side, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                        htmlspecialchars($this->fmt((float) $entry), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                        htmlspecialchars($this->fmt($lastClose), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+                    ), $tf);
                 }
             }
 
@@ -713,13 +741,17 @@ final class MaTouchProcessor
             $need,
             htmlspecialchars($candle, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
         );
-        if ($this->testMode) {
-            $this->logInfo('telegram (не отправлено в TEST): ' . strip_tags($msg), ['tf' => $tf]);
-
-            return;
-        }
         try {
             $this->telegram->send($msg, ['tf' => $tf, 'source' => 'ma_cross']);
+        } catch (Throwable) {
+            // ignore
+        }
+    }
+
+    private function notifyTelegram(string $message, string $tf): void
+    {
+        try {
+            $this->telegram->send($message, ['tf' => $tf, 'source' => 'ma_cross']);
         } catch (Throwable) {
             // ignore
         }

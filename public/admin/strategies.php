@@ -747,7 +747,7 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                 <strong>Касание:</strong> SMA(28) между low/high закрытой свечи → сигнал.<br>
                                 <strong>Переход ↓:</strong> close с MA сверху вниз → N обновлений локального лоя → Buy по close − запас.<br>
                                 <strong>Переход ↑:</strong> close с MA снизу вверх → N обновлений локального хая → Sell по close + запас.<br>
-                                TP/SL в $ от цены входа. Боевые ордера: <code>trading_enabled=1</code>; тест — только лог.
+                                TP/SL в $ от цены входа. Боевые ордера: <code>trading_enabled=1</code>; в тесте ордера эмулируются, все события уходят в Telegram.
                             </p>
                             <button type="submit" name="action" value="reset_ma_touch" class="btn btn-sm btn-outline-warning"
                                     onclick="return confirm('Сбросить стратегию MA28?');">Сбросить</button>
@@ -869,7 +869,7 @@ $renderLevelRows = static function (array $rows, string $side): void {
                             <p class="text-secondary small mb-0">
                                 High → Buy-лимиты ниже хая; Low → Sell-лимиты выше лоя. Пока нет fill — сетка двигается за экстремумом раз в минуту.
                                 После fill — ждём TP/SL, незаполненные не двигаем.
-                                Боевой режим требует <code>trading_enabled=1</code>; тестовый — только логирует эмуляцию.
+                                Боевой режим требует <code>trading_enabled=1</code>; в тестовом ордера эмулируются, все события уходят в Telegram.
                             </p>
                             <div class="d-flex gap-2 align-items-center flex-wrap">
                                 <div class="form-check form-switch mb-0">
