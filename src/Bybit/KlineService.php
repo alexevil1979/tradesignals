@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Bybit;
 
 use App\Database\SettingsRepository;
+use App\Helpers\Intervals;
 use DateTimeImmutable;
 use DateTimeZone;
 use PDO;
@@ -63,6 +64,143 @@ final class KlineService
             'pages' => 1,
             'history_complete' => true,
         ];
+    }
+
+    /**
+     * Ищет разрывы между свечами и догружает пропущенные бары с mainnet.
+     *
+     * @return array{
+     *   gaps_found: int,
+     *   saved: int,
+     *   gaps: list<array{type: string, after: ?string, before: ?string, missing_bars: int}>
+     * }
+     */
+    public function repairInterval(string $symbol, string $interval): array
+    {
+        if ($this->countCandles($symbol, $interval) === 0) {
+            $sync = $this->syncInterval($symbol, $interval);
+
+            return [
+                'gaps_found' => 0,
+                'saved' => $sync['saved'],
+                'gaps' => [],
+                'mode' => $sync['mode'],
+            ];
+        }
+
+        $gaps = $this->findGaps($symbol, $interval);
+        $saved = 0;
+        foreach ($gaps as $gap) {
+            $saved += $this->fillRange(
+                $symbol,
+                $interval,
+                (int) $gap['from_ts'],
+                (int) $gap['to_ts'],
+            );
+        }
+
+        $recent = $this->updateRecent($symbol, $interval);
+        $saved += $recent['saved'];
+
+        return [
+            'gaps_found' => count($gaps),
+            'saved' => $saved,
+            'gaps' => array_map(static fn (array $gap): array => [
+                'type' => (string) ($gap['type'] ?? 'internal'),
+                'after' => isset($gap['after']) ? (string) $gap['after'] : null,
+                'before' => isset($gap['before']) ? (string) $gap['before'] : null,
+                'missing_bars' => (int) ($gap['missing_bars'] ?? 0),
+            ], $gaps),
+            'mode' => 'repair',
+        ];
+    }
+
+    /**
+     * @return array{total_saved: int, intervals: array<string, array<string, mixed>>}
+     */
+    public function repairAll(string $symbol): array
+    {
+        $intervals = [];
+        $totalSaved = 0;
+        foreach (Intervals::codes() as $interval) {
+            $result = $this->repairInterval($symbol, $interval);
+            $intervals[$interval] = $result;
+            $totalSaved += (int) ($result['saved'] ?? 0);
+        }
+
+        return [
+            'total_saved' => $totalSaved,
+            'intervals' => $intervals,
+        ];
+    }
+
+    /**
+     * @return list<array{type: string, after?: string, before?: string, from_ts: int, to_ts: int, missing_bars: int}>
+     */
+    public function findGaps(string $symbol, string $interval): array
+    {
+        $step = $this->intervalSeconds($interval);
+        $statement = $this->pdo->prepare(
+            'SELECT open_time FROM candles
+             WHERE symbol = :symbol AND interval_code = :interval
+             ORDER BY open_time ASC'
+        );
+        $statement->execute(['symbol' => $symbol, 'interval' => $interval]);
+        /** @var list<string> $times */
+        $times = $statement->fetchAll(PDO::FETCH_COLUMN);
+        if ($times === []) {
+            return [];
+        }
+
+        $gaps = [];
+        for ($i = 0; $i < count($times) - 1; $i++) {
+            $t1 = strtotime($times[$i] . ' UTC');
+            $t2 = strtotime($times[$i + 1] . ' UTC');
+            if ($t1 === false || $t2 === false) {
+                continue;
+            }
+            $expectedNext = $t1 + $step;
+            if ($t2 <= $expectedNext) {
+                continue;
+            }
+            $missing = (int) floor(($t2 - $expectedNext) / $step) + 1;
+            if ($missing < 1) {
+                continue;
+            }
+            $gaps[] = [
+                'type' => 'internal',
+                'after' => $times[$i],
+                'before' => $times[$i + 1],
+                'from_ts' => $expectedNext,
+                'to_ts' => $t2 - $step,
+                'missing_bars' => $missing,
+            ];
+        }
+
+        $lastTime = $times[array_key_last($times)];
+        $lastTs = strtotime($lastTime . ' UTC');
+        if ($lastTs === false) {
+            return $gaps;
+        }
+
+        $now = time();
+        $cursor = $lastTs + $step;
+        $missingTail = 0;
+        while ($cursor + $step <= $now) {
+            $missingTail++;
+            $cursor += $step;
+        }
+        if ($missingTail > 0) {
+            $gaps[] = [
+                'type' => 'tail',
+                'after' => $lastTime,
+                'from_ts' => $lastTs + $step,
+                'to_ts' => $now,
+                'missing_bars' => $missingTail,
+            ];
+        }
+
+        return $gaps;
     }
 
     /** Полная очистка свечей инструмента (кривые данные). */
@@ -166,6 +304,56 @@ final class KlineService
         usort($rows, static fn (array $a, array $b): int => strcmp($a['open_time'], $b['open_time']));
 
         return ['saved' => $this->save($symbol, $interval, $rows)];
+    }
+
+    /** Догрузка диапазона [fromTs, toTs] (unix sec, UTC). */
+    private function fillRange(string $symbol, string $interval, int $fromTs, int $toTs): int
+    {
+        if ($fromTs > $toTs) {
+            return 0;
+        }
+
+        $step = $this->intervalSeconds($interval);
+        $startMs = $fromTs * 1000;
+        $endMs = $toTs * 1000;
+        $saved = 0;
+        $cursorEnd = $endMs;
+        $pages = 0;
+
+        while ($startMs <= $cursorEnd && $pages < 50) {
+            $pages++;
+            $rows = $this->fetchMainnetPage($symbol, $interval, self::PAGE_LIMIT, $startMs, $cursorEnd);
+            if ($rows === []) {
+                break;
+            }
+
+            usort($rows, static fn (array $a, array $b): int => strcmp($a['open_time'], $b['open_time']));
+            $saved += $this->save($symbol, $interval, $rows);
+
+            $minOpenTs = null;
+            foreach ($rows as $row) {
+                $openTs = strtotime($row['open_time'] . ' UTC');
+                if ($openTs === false) {
+                    continue;
+                }
+                if ($minOpenTs === null || $openTs < $minOpenTs) {
+                    $minOpenTs = $openTs;
+                }
+            }
+
+            if ($minOpenTs === null || count($rows) < self::PAGE_LIMIT) {
+                break;
+            }
+
+            if ($minOpenTs * 1000 <= $startMs) {
+                break;
+            }
+
+            $cursorEnd = ($minOpenTs - $step) * 1000;
+            usleep(200_000);
+        }
+
+        return $saved;
     }
 
     /**

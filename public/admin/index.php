@@ -61,6 +61,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
             <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
             <button type="button" class="btn btn-outline-warning btn-sm" id="toggle-ma" title="SMA 28">МА</button>
             <button type="button" class="btn btn-outline-info btn-sm" id="toggle-pc" title="Price Channel + Trend Flip">PC</button>
+            <button type="button" class="btn btn-outline-success btn-sm" id="repair-gaps" title="Проверить и догрузить пропущенные свечи">Догрузить гэпы</button>
             <button type="button" class="btn btn-outline-light btn-sm" id="refresh-charts">Обновить</button>
         </div>
     </div>
@@ -113,7 +114,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260827-1"></script>
+<script src="/admin/assets/js/charts.js?v=20260828-1"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const dashboard = window.TradeSignalsCharts.createDashboard({
@@ -170,6 +171,16 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
 
         refreshQuotes.start();
         document.getElementById('refresh-charts')?.addEventListener('click', () => refreshQuotes.tick(true));
+
+        const candlesRepair = window.TradeSignalsCharts.createCandlesRepair({
+            repairEndpoint: '/api/repair_candles.php',
+            csrfToken: '<?= $csrfToken ?>',
+            statusSelector: '#quotes-refresh-status',
+            onAfterRepair: () => dashboard.load(),
+        });
+        document.getElementById('repair-gaps')?.addEventListener('click', () => {
+            candlesRepair.repair().catch(() => {});
+        });
     });
 </script>
 </body>

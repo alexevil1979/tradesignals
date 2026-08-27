@@ -1108,10 +1108,77 @@
         return { start, stop, tick };
     }
 
+    function createCandlesRepair({
+        repairEndpoint,
+        csrfToken,
+        statusSelector,
+        onAfterRepair,
+    }) {
+        let busy = false;
+        const statusEl = statusSelector ? document.querySelector(statusSelector) : null;
+
+        const setStatus = (text, tone = 'secondary') => {
+            if (!statusEl) {
+                return;
+            }
+            statusEl.className = `badge text-bg-${tone}`;
+            statusEl.textContent = text;
+        };
+
+        async function repair() {
+            if (busy) {
+                return null;
+            }
+            busy = true;
+            setStatus('проверка разрывов…', 'info');
+            try {
+                const response = await fetch(repairEndpoint, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `csrf_token=${encodeURIComponent(csrfToken)}`,
+                });
+                const payload = await response.json();
+                if (!response.ok || !payload.ok) {
+                    throw new Error(payload.error || 'Ошибка догрузки котировок');
+                }
+                if (typeof onAfterRepair === 'function') {
+                    await onAfterRepair(payload);
+                }
+                const gaps = Number(payload.total_gaps ?? 0);
+                const saved = Number(payload.total_saved ?? 0);
+                const now = new Date();
+                const stamp = now.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                });
+                if (gaps === 0) {
+                    setStatus(`разрывов нет · ${stamp}`, 'success');
+                } else {
+                    setStatus(`догружено ${saved} бар · ${gaps} разр. · ${stamp}`, 'success');
+                }
+                return payload;
+            } catch (error) {
+                setStatus('ошибка догрузки', 'danger');
+                console.error(error);
+                throw error;
+            } finally {
+                busy = false;
+            }
+        }
+
+        return { repair };
+    }
+
     window.TradeSignalsCharts = {
         createDashboard,
         createSingleChart,
         createQuotesAutoRefresh,
+        createCandlesRepair,
         persistChartTimeframe,
         readSavedChartTimeframe,
     };
