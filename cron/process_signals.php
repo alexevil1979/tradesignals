@@ -14,6 +14,8 @@ use App\Strategy\GridManager;
 use App\Strategy\RuleEngine;
 use App\Strategy\DirectionGridProcessor;
 use App\Strategy\LevelGridProcessor;
+use App\Strategy\PriceChannelConfig;
+use App\Strategy\PriceChannelProcessor;
 use App\Strategy\MaTouchConfig;
 use App\Strategy\MaTouchProcessor;
 use App\Strategy\RangeAlertProcessor;
@@ -62,6 +64,16 @@ try {
         }
     }
     $maTouch = MaTouchConfig::normalize($decodedMa);
+    $rawPc = $settings->get(PriceChannelConfig::SETTING_KEY);
+    $decodedPc = null;
+    if (is_string($rawPc) && $rawPc !== '') {
+        try {
+            $decodedPc = json_decode($rawPc, true, 512, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            $decodedPc = null;
+        }
+    }
+    $priceChannel = PriceChannelConfig::normalize($decodedPc);
     $map = Intervals::chartMap();
     $tfsToSync = [];
     foreach (SignalGridConfig::TIMEFRAMES as $tf) {
@@ -72,6 +84,9 @@ try {
             }
         }
         if (!empty($maTouch['timeframes'][$tf])) {
+            $tfsToSync[$tf] = true;
+        }
+        if (!empty($priceChannel['timeframes'][$tf])) {
             $tfsToSync[$tf] = true;
         }
     }
@@ -144,16 +159,25 @@ $directionCreated = (new DirectionGridProcessor(
     $tradingEnabled,
 ))->process($symbol);
 
+$priceChannelCreated = (new PriceChannelProcessor(
+    $settings,
+    $candleRepository,
+    $signalRepository,
+    $telegram,
+    $logger,
+))->process($symbol);
+
 $logger->info('Обработка матрицы сигналов завершена.', [
     'symbol' => $symbol,
-    'created' => $gridCreated + $levelCreated + $rangeCreated + $maTouchCreated + $directionCreated,
+    'created' => $gridCreated + $levelCreated + $rangeCreated + $maTouchCreated + $directionCreated + $priceChannelCreated,
     'bars' => $gridCreated,
     'levels' => $levelCreated,
     'range' => $rangeCreated,
     'ma_touch' => $maTouchCreated,
     'direction_grid' => $directionCreated,
+    'price_channel' => $priceChannelCreated,
 ], 'cron');
-echo "Матрица сигналов: бары {$gridCreated}, уровни {$levelCreated}, диапазон {$rangeCreated}, MA28 {$maTouchCreated}, сетка {$directionCreated}.\n";
+echo "Матрица сигналов: бары {$gridCreated}, уровни {$levelCreated}, диапазон {$rangeCreated}, MA28 {$maTouchCreated}, сетка {$directionCreated}, PC {$priceChannelCreated}.\n";
 
 $strategies = (new StrategyRepository($pdo))->active();
 if (count($strategies) > 1) {

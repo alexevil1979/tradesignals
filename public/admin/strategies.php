@@ -7,6 +7,7 @@ use App\Strategy\CandleRepository;
 use App\Strategy\DirectionGridConfig;
 use App\Strategy\LevelGridConfig;
 use App\Strategy\MaTouchConfig;
+use App\Strategy\PriceChannelConfig;
 use App\Strategy\RangeAlertConfig;
 use App\Strategy\SignalGridConfig;
 use App\Helpers\ChartUiState;
@@ -52,6 +53,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $settings->set(DirectionGridConfig::SETTING_KEY, json_encode($directionGrid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $settings->set(DirectionGridConfig::STATE_KEY, json_encode(DirectionGridConfig::defaultState(), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $flash = 'Стратегия слежения сброшена.';
+        } elseif ($action === 'reset_price_channel') {
+            $priceChannel = PriceChannelConfig::defaults();
+            $settings->set(PriceChannelConfig::SETTING_KEY, json_encode($priceChannel, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $settings->set(PriceChannelConfig::STATE_KEY, json_encode(PriceChannelConfig::defaultState(), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $flash = 'Стратегия Price Channel сброшена.';
         } else {
             $grid = SignalGridConfig::fromPost($_POST);
             $settings->set(SignalGridConfig::SETTING_KEY, json_encode($grid, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
@@ -99,6 +105,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($stateChanged) {
                 $settings->set(DirectionGridConfig::STATE_KEY, json_encode($state, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             }
+            $priceChannel = PriceChannelConfig::fromPost($_POST);
+            $settings->set(PriceChannelConfig::SETTING_KEY, json_encode($priceChannel, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $flash = 'Стратегии сохранены.';
         }
     }
@@ -173,6 +181,17 @@ if (is_string($rawDgState) && $rawDgState !== '') {
     }
 }
 $directionState = DirectionGridConfig::normalizeState($decodedDgState);
+
+$rawPriceChannel = $settings->get(PriceChannelConfig::SETTING_KEY);
+$decodedPriceChannel = null;
+if (is_string($rawPriceChannel) && $rawPriceChannel !== '') {
+    try {
+        $decodedPriceChannel = json_decode($rawPriceChannel, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        $decodedPriceChannel = null;
+    }
+}
+$priceChannel = PriceChannelConfig::normalize($decodedPriceChannel);
 
 $symbol = (string) $config['bybit']['symbol'];
 $lastPrice = null;
@@ -986,6 +1005,78 @@ $renderLevelRows = static function (array $rows, string $side): void {
                     </div>
                 </div>
             </div>
+
+            <div class="accordion-item bg-black border-secondary mt-3">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed bg-dark text-light" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#collapsePriceChannel"
+                            aria-expanded="false" aria-controls="collapsePriceChannel">
+                        Price Channel + Trend Flip
+                        <span class="badge text-bg-secondary ms-2 fw-normal">Telegram</span>
+                        <?php if (PriceChannelConfig::isActive($priceChannel)): ?>
+                            <span class="badge text-bg-success ms-2 fw-normal">активна</span>
+                        <?php endif; ?>
+                    </button>
+                </h2>
+                <div id="collapsePriceChannel" class="accordion-collapse collapse">
+                    <div class="accordion-body">
+                        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                            <p class="text-secondary small mb-0">
+                                Уведомления в Telegram при появлении стрелок индикатора PC на графиках:
+                                <strong>BUY/SELL</strong> (Price Channel, length=<?= (int) ($priceChannel['channel_length'] ?? PriceChannelConfig::DEFAULT_LENGTH) ?>)
+                                и <strong>↑/↓</strong> (Trend Flip).
+                                Ордера не выставляются — только сообщения. При первом включении история не отправляется.
+                            </p>
+                            <button type="submit" name="action" value="reset_price_channel" class="btn btn-sm btn-outline-warning"
+                                    onclick="return confirm('Сбросить стратегию Price Channel?');">Сбросить</button>
+                        </div>
+
+                        <div class="card bg-black border-secondary mb-3">
+                            <div class="card-body py-3">
+                                <div class="small text-secondary mb-2">Таймфреймы для Telegram</div>
+                                <div class="row g-3">
+                                    <?php foreach (PriceChannelConfig::TIMEFRAMES as $tf): ?>
+                                        <div class="col-6 col-md-4 col-xl-2">
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" role="switch"
+                                                       id="pc_<?= $tf ?>"
+                                                       name="pc[<?= $tf ?>]" value="1"
+                                                    <?= !empty($priceChannel['timeframes'][$tf]) ? 'checked' : '' ?>>
+                                                <label class="form-check-label" for="pc_<?= $tf ?>"><?= htmlspecialchars($tf, ENT_QUOTES, 'UTF-8') ?></label>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card bg-black border-secondary">
+                            <div class="card-body py-3">
+                                <div class="d-flex flex-wrap gap-3 align-items-center">
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               id="pc_channel_enabled" name="pc_channel_enabled" value="1"
+                                            <?= !empty($priceChannel['channel_enabled']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="pc_channel_enabled">BUY / SELL (канал)</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               id="pc_flip_enabled" name="pc_flip_enabled" value="1"
+                                            <?= !empty($priceChannel['flip_enabled']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="pc_flip_enabled">↑ / ↓ (Trend Flip)</label>
+                                    </div>
+                                    <div class="ms-md-3">
+                                        <label class="form-label small text-secondary mb-1" for="pc_channel_length">Длина канала</label>
+                                        <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary"
+                                               id="pc_channel_length" name="pc_channel_length" min="2" max="200" step="1"
+                                               value="<?= (int) ($priceChannel['channel_length'] ?? PriceChannelConfig::DEFAULT_LENGTH) ?>">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </form>
 </main>
@@ -1022,8 +1113,9 @@ $renderLevelRows = static function (array $rows, string $side): void {
                 collapseRange: false,
                 collapseMaTouch: false,
                 collapseDirectionGrid: false,
+                collapsePriceChannel: false,
             });
-            ['collapseBars', 'collapseLevels', 'collapseRange', 'collapseMaTouch', 'collapseDirectionGrid'].forEach((id) => {
+            ['collapseBars', 'collapseLevels', 'collapseRange', 'collapseMaTouch', 'collapseDirectionGrid', 'collapsePriceChannel'].forEach((id) => {
                 const pane = document.getElementById(id);
                 const btn = accordion.querySelector(`[data-bs-target="#${id}"]`);
                 if (!pane || !btn) {

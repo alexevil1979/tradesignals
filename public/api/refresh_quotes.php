@@ -14,6 +14,7 @@ use App\Strategy\CandleRepository;
 use App\Strategy\DirectionGridProcessor;
 use App\Strategy\LevelGridProcessor;
 use App\Strategy\MaTouchProcessor;
+use App\Strategy\PriceChannelProcessor;
 use App\Strategy\RangeAlertProcessor;
 use App\Strategy\SignalGridProcessor;
 use App\Strategy\SignalRepository;
@@ -122,6 +123,7 @@ try {
 
                 $directionCreated = 0;
                 $maTouchCreated = 0;
+                $priceChannelCreated = 0;
                 try {
                     $bybitConfig = $config['bybit'] + ['max_retries' => $config['trading']['max_api_retries']];
                     $client = new Client($bybitConfig, $logger);
@@ -150,13 +152,20 @@ try {
                         $logger,
                         $tradingEnabled,
                     ))->process($symbol);
+                    $priceChannelCreated = (new PriceChannelProcessor(
+                        $settings,
+                        $candleRepo,
+                        $signalRepo,
+                        $telegram,
+                        $logger,
+                    ))->process($symbol);
                 } catch (Throwable $exception) {
-                    $logger->error('MA28/Direction grid: ошибка обработки с Dashboard.', [
+                    $logger->error('MA28/Direction grid/PC: ошибка обработки с Dashboard.', [
                         'error' => $exception->getMessage(),
                     ], 'trading');
                 }
 
-                $signalsCreated = $barCreated + $levelCreated + $rangeCreated + $maTouchCreated + $directionCreated;
+                $signalsCreated = $barCreated + $levelCreated + $rangeCreated + $maTouchCreated + $directionCreated + $priceChannelCreated;
                 $logger->info('Обработка матрицы сигналов с Dashboard.', [
                     'symbol' => $symbol,
                     'created' => $signalsCreated,
@@ -165,6 +174,7 @@ try {
                     'range' => $rangeCreated,
                     'ma_touch' => $maTouchCreated,
                     'direction_grid' => $directionCreated,
+                    'price_channel' => $priceChannelCreated,
                 ], 'cron');
             } finally {
                 if (is_resource($lock)) {
