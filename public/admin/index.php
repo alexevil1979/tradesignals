@@ -114,7 +114,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260828-3"></script>
+<script src="/admin/assets/js/charts.js?v=20260828-4"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const dashboard = window.TradeSignalsCharts.createDashboard({

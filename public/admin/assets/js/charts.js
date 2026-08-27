@@ -331,7 +331,6 @@
         };
 
         const applyPcData = () => {
-            clearPcPriceLines();
             if (!pcEnabled || lastCandles.length === 0) {
                 try {
                     series.setMarkers([]);
@@ -342,31 +341,8 @@
             }
 
             const pcMarkers = computePriceChannelMarkers(lastCandles, PC_LENGTH);
-            const flip = computeTrendFlip(lastCandles, TREND_FLIP_LINES);
-            series.setMarkers(mergeMarkers(pcMarkers, flip.markers));
-
-            flip.upLevels.forEach((price, idx) => {
-                const line = series.createPriceLine({
-                    price,
-                    color: PC_LINE_GREENS[idx] || '#22c55e',
-                    lineWidth: 2,
-                    lineStyle: LightweightCharts.LineStyle.Solid,
-                    axisLabelVisible: true,
-                    title: `↑${idx + 1}`,
-                });
-                pcPriceLines.push(line);
-            });
-            flip.downLevels.forEach((price, idx) => {
-                const line = series.createPriceLine({
-                    price,
-                    color: PC_LINE_REDS[idx] || '#ef4444',
-                    lineWidth: 2,
-                    lineStyle: LightweightCharts.LineStyle.Solid,
-                    axisLabelVisible: true,
-                    title: `↓${idx + 1}`,
-                });
-                pcPriceLines.push(line);
-            });
+            const flipMarkers = computeTrendFlip(lastCandles);
+            series.setMarkers(mergeMarkers(pcMarkers, flipMarkers));
         };
 
         const setMaEnabled = (enabled) => {
