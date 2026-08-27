@@ -76,6 +76,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
             </span>
             <span class="d-flex align-items-center gap-2">
                 <button type="button" class="btn btn-outline-warning btn-sm" id="toggle-ma" title="SMA 28">МА</button>
+                <button type="button" class="btn btn-outline-info btn-sm" id="toggle-pc" title="Price Channel + Trend Flip">PC</button>
                 <small class="text-secondary" id="chart-count">загрузка…</small>
                 <span class="badge text-bg-secondary" id="quotes-refresh-status">автообновление 60с</span>
             </span>
@@ -86,7 +87,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260802-3"></script>
+<script src="/admin/assets/js/charts.js?v=20260827-1"></script>
 <script>
     document.addEventListener('DOMContentLoaded', async () => {
         const activeTf = <?= json_encode($active, JSON_UNESCAPED_UNICODE) ?>;
@@ -114,6 +115,26 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
         maBtn?.addEventListener('click', () => {
             chart.setMaEnabled(!chart.isMaEnabled());
             syncMaButton();
+        });
+
+        const pcBtn = document.getElementById('toggle-pc');
+        const syncPcButton = () => {
+            if (!pcBtn) {
+                return;
+            }
+            const on = chart.isPcEnabled();
+            pcBtn.classList.toggle('btn-info', on);
+            pcBtn.classList.toggle('btn-outline-info', !on);
+            pcBtn.classList.toggle('text-dark', on);
+            pcBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            pcBtn.title = on
+                ? 'Скрыть Price Channel + Trend Flip'
+                : 'Показать Price Channel + Trend Flip';
+        };
+        syncPcButton();
+        pcBtn?.addEventListener('click', () => {
+            chart.setPcEnabled(!chart.isPcEnabled());
+            syncPcButton();
         });
 
         const updateCount = async () => {

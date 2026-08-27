@@ -4,11 +4,15 @@
     const RIGHT_OFFSET_BARS = 300;
     const VIEW_STORAGE_KEY = 'tradesignals.chartView.v2';
     const MA_STORAGE_KEY = 'tradesignals.chartMa.v1';
+    const PC_STORAGE_KEY = 'tradesignals.chartPc.v1';
     const TF_STORAGE_KEY = 'tradesignals.chartTf.v1';
     const TF_COOKIE = 'tradesignals_chart_tf';
     const MA_PERIODS = [
         { period: 28, color: '#3b82f6', key: 'ma28' },
     ];
+    /** Параметры как в Pine «Price Channel + Trend Flip». */
+    const PC_LENGTH = 20;
+    const TREND_FLIP_LINES = 5;
 
     function persistChartTimeframe(tf) {
         if (!tf || typeof tf !== 'string') {
@@ -63,6 +67,22 @@
         }
     }
 
+    function readPcEnabled() {
+        try {
+            return localStorage.getItem(PC_STORAGE_KEY) === '1';
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    function writePcEnabled(enabled) {
+        try {
+            localStorage.setItem(PC_STORAGE_KEY, enabled ? '1' : '0');
+        } catch (_error) {
+            // ignore
+        }
+    }
+
     /** Простая скользящая средняя по close. */
     function computeSma(candles, period) {
         const out = [];
@@ -84,6 +104,193 @@
         }
         return out;
     }
+
+    function nearlyEqual(a, b) {
+        return Math.abs(Number(a) - Number(b)) < 1e-8;
+    }
+
+    function highestInRange(candles, from, to) {
+        let m = -Infinity;
+        for (let i = from; i <= to; i += 1) {
+            const h = Number(candles[i].high);
+            if (h > m) {
+                m = h;
+            }
+        }
+        return m;
+    }
+
+    function lowestInRange(candles, from, to) {
+        let m = Infinity;
+        for (let i = from; i <= to; i += 1) {
+            const l = Number(candles[i].low);
+            if (l < m) {
+                m = l;
+            }
+        }
+        return m;
+    }
+
+    /**
+     * Price Channel signals (Pine):
+     * upper/lower = highest/lowest за length; long = high == upper[1], short = low == lower[1].
+     */
+    function computePriceChannelMarkers(candles, length = PC_LENGTH) {
+        const markers = [];
+        if (!Array.isArray(candles) || candles.length < length + 1) {
+            return markers;
+        }
+        for (let i = length; i < candles.length; i += 1) {
+            const upperPrev = highestInRange(candles, i - length, i - 1);
+            const lowerPrev = lowestInRange(candles, i - length, i - 1);
+            const high = Number(candles[i].high);
+            const low = Number(candles[i].low);
+            if (nearlyEqual(high, upperPrev)) {
+                markers.push({
+                    time: candles[i].time,
+                    position: 'belowBar',
+                    color: '#22c55e',
+                    shape: 'arrowUp',
+                    text: 'BUY',
+                });
+            }
+            if (nearlyEqual(low, lowerPrev)) {
+                markers.push({
+                    time: candles[i].time,
+                    position: 'aboveBar',
+                    color: '#ef4444',
+                    shape: 'arrowDown',
+                    text: 'SELL',
+                });
+            }
+        }
+        return markers;
+    }
+
+    /**
+     * Trend Flip (Pine): стрелки разворота + последние уровни flipLevel.
+     * @returns {{markers: array, upLevels: number[], downLevels: number[]}}
+     */
+    function computeTrendFlip(candles, linesCount = TREND_FLIP_LINES) {
+        const markers = [];
+        const upLevels = [];
+        const downLevels = [];
+        if (!Array.isArray(candles) || candles.length === 0) {
+            return { markers, upLevels, downLevels };
+        }
+
+        let trend = null;
+        let lastFlipClose = null;
+        let extremeOpen = null;
+        let extremeClose = null;
+
+        for (let i = 0; i < candles.length; i += 1) {
+            const open = Number(candles[i].open);
+            const close = Number(candles[i].close);
+            let flip = false;
+            let flipLevel = null;
+
+            if (lastFlipClose === null) {
+                trend = close > open ? 'up' : 'down';
+                lastFlipClose = close;
+                extremeOpen = open;
+                extremeClose = close;
+            }
+
+            if (trend === 'up') {
+                if (close > open) {
+                    if (close > extremeClose) {
+                        extremeClose = close;
+                        extremeOpen = open;
+                    }
+                } else if (close < extremeOpen) {
+                    flipLevel = extremeOpen;
+                    flip = true;
+                    trend = 'down';
+                    extremeClose = close;
+                    extremeOpen = open;
+                }
+            } else if (trend === 'down') {
+                if (close < open) {
+                    if (close < extremeClose) {
+                        extremeClose = close;
+                        extremeOpen = open;
+                    }
+                } else if (close > extremeOpen) {
+                    flipLevel = extremeOpen;
+                    flip = true;
+                    trend = 'up';
+                    extremeClose = close;
+                    extremeOpen = open;
+                }
+            }
+
+            if (flip) {
+                const delta = trend === 'up'
+                    ? lastFlipClose - close
+                    : -(lastFlipClose - close);
+                // Как в Pine: ↑ красная снизу, ↓ зелёная сверху.
+                if (trend === 'up') {
+                    markers.push({
+                        time: candles[i].time,
+                        position: 'belowBar',
+                        color: '#ef4444',
+                        shape: 'arrowUp',
+                        text: delta > 0 ? `↑ ${Math.round(delta)}` : '↑',
+                    });
+                    if (flipLevel != null && Number.isFinite(flipLevel)) {
+                        upLevels.unshift(flipLevel);
+                        if (upLevels.length > linesCount) {
+                            upLevels.length = linesCount;
+                        }
+                    }
+                } else {
+                    markers.push({
+                        time: candles[i].time,
+                        position: 'aboveBar',
+                        color: '#22c55e',
+                        shape: 'arrowDown',
+                        text: delta > 0 ? `↓ ${Math.round(delta)}` : '↓',
+                    });
+                    if (flipLevel != null && Number.isFinite(flipLevel)) {
+                        downLevels.unshift(flipLevel);
+                        if (downLevels.length > linesCount) {
+                            downLevels.length = linesCount;
+                        }
+                    }
+                }
+                lastFlipClose = close;
+            }
+        }
+
+        return { markers, upLevels, downLevels };
+    }
+
+    function mergeMarkers(...groups) {
+        const all = [];
+        groups.forEach((group) => {
+            if (Array.isArray(group)) {
+                all.push(...group);
+            }
+        });
+        all.sort((a, b) => {
+            if (a.time === b.time) {
+                return 0;
+            }
+            if (typeof a.time === 'string' || typeof b.time === 'string') {
+                return String(a.time).localeCompare(String(b.time));
+            }
+            return a.time - b.time;
+        });
+        // Как max_labels_count=100 в Pine — не перегружаем график.
+        if (all.length > 100) {
+            return all.slice(all.length - 100);
+        }
+        return all;
+    }
+
+    const PC_LINE_GREENS = ['#16a34a', '#22c55e', '#4ade80', '#86efac', '#bbf7d0'];
+    const PC_LINE_REDS = ['#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca'];
 
     function createChart(container) {
         const chart = LightweightCharts.createChart(container, {
@@ -129,6 +336,20 @@
 
         let lastCandles = [];
         let maEnabled = false;
+        let pcEnabled = false;
+        /** @type {Array<{remove: Function}>} */
+        let pcPriceLines = [];
+
+        const clearPcPriceLines = () => {
+            pcPriceLines.forEach((line) => {
+                try {
+                    series.removePriceLine(line);
+                } catch (_error) {
+                    // ignore
+                }
+            });
+            pcPriceLines = [];
+        };
 
         const applyMaData = () => {
             MA_PERIODS.forEach((item) => {
@@ -146,9 +367,53 @@
             });
         };
 
+        const applyPcData = () => {
+            clearPcPriceLines();
+            if (!pcEnabled || lastCandles.length === 0) {
+                try {
+                    series.setMarkers([]);
+                } catch (_error) {
+                    // ignore
+                }
+                return;
+            }
+
+            const pcMarkers = computePriceChannelMarkers(lastCandles, PC_LENGTH);
+            const flip = computeTrendFlip(lastCandles, TREND_FLIP_LINES);
+            series.setMarkers(mergeMarkers(pcMarkers, flip.markers));
+
+            flip.upLevels.forEach((price, idx) => {
+                const line = series.createPriceLine({
+                    price,
+                    color: PC_LINE_GREENS[idx] || '#22c55e',
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
+                    axisLabelVisible: true,
+                    title: `↑${idx + 1}`,
+                });
+                pcPriceLines.push(line);
+            });
+            flip.downLevels.forEach((price, idx) => {
+                const line = series.createPriceLine({
+                    price,
+                    color: PC_LINE_REDS[idx] || '#ef4444',
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
+                    axisLabelVisible: true,
+                    title: `↓${idx + 1}`,
+                });
+                pcPriceLines.push(line);
+            });
+        };
+
         const setMaEnabled = (enabled) => {
             maEnabled = !!enabled;
             applyMaData();
+        };
+
+        const setPcEnabled = (enabled) => {
+            pcEnabled = !!enabled;
+            applyPcData();
         };
 
         const resize = () => {
@@ -162,6 +427,7 @@
 
         attachChartNav(container, chart);
         attachMaLegend(container);
+        attachPcLegend(container);
 
         return {
             chart,
@@ -170,9 +436,11 @@
             resize,
             container,
             setMaEnabled,
+            setPcEnabled,
             setLastCandles(candles) {
                 lastCandles = Array.isArray(candles) ? candles : [];
                 applyMaData();
+                applyPcData();
             },
         };
     }
@@ -190,8 +458,31 @@
         container.appendChild(legend);
     }
 
+    function attachPcLegend(container) {
+        if (container.querySelector('.chart-pc-legend')) {
+            return;
+        }
+        const legend = document.createElement('div');
+        legend.className = 'chart-pc-legend';
+        legend.hidden = true;
+        legend.innerHTML = [
+            '<span style="color:#22c55e">PC BUY</span>',
+            '<span style="color:#ef4444">PC SELL</span>',
+            '<span style="color:#ef4444">Flip ↑</span>',
+            '<span style="color:#22c55e">Flip ↓</span>',
+        ].join('');
+        container.appendChild(legend);
+    }
+
     function setMaLegendVisible(container, visible) {
         const legend = container.querySelector('.chart-ma-legend');
+        if (legend) {
+            legend.hidden = !visible;
+        }
+    }
+
+    function setPcLegendVisible(container, visible) {
+        const legend = container.querySelector('.chart-pc-legend');
         if (legend) {
             legend.hidden = !visible;
         }
@@ -541,6 +832,7 @@
         const hosts = Array.from(document.querySelectorAll(containerSelector));
         const charts = new Map();
         let maEnabled = readMaEnabled();
+        let pcEnabled = readPcEnabled();
 
         hosts.forEach((host) => {
             const entry = createChart(host);
@@ -553,6 +845,8 @@
             );
             entry.setMaEnabled(maEnabled);
             setMaLegendVisible(entry.container, maEnabled);
+            entry.setPcEnabled(pcEnabled);
+            setPcLegendVisible(entry.container, pcEnabled);
             charts.set(label, entry);
         });
 
@@ -568,6 +862,20 @@
 
         function isMaEnabled() {
             return maEnabled;
+        }
+
+        function setPcEnabled(enabled) {
+            pcEnabled = !!enabled;
+            writePcEnabled(pcEnabled);
+            charts.forEach((entry) => {
+                entry.setPcEnabled(pcEnabled);
+                setPcLegendVisible(entry.container, pcEnabled);
+            });
+            return pcEnabled;
+        }
+
+        function isPcEnabled() {
+            return pcEnabled;
         }
 
         async function load() {
@@ -644,7 +952,7 @@
             }
         }
 
-        return { load, setMaEnabled, isMaEnabled };
+        return { load, setMaEnabled, isMaEnabled, setPcEnabled, isPcEnabled };
     }
 
     function createSingleChart({ endpoint, containerId, viewKey }) {
@@ -654,6 +962,8 @@
                 load: async () => {},
                 setMaEnabled: () => false,
                 isMaEnabled: () => false,
+                setPcEnabled: () => false,
+                isPcEnabled: () => false,
             };
         }
         const entry = createChart(container);
@@ -664,8 +974,11 @@
             viewKey || `single:${containerId}`
         );
         let maEnabled = readMaEnabled();
+        let pcEnabled = readPcEnabled();
         entry.setMaEnabled(maEnabled);
         setMaLegendVisible(entry.container, maEnabled);
+        entry.setPcEnabled(pcEnabled);
+        setPcLegendVisible(entry.container, pcEnabled);
 
         async function load() {
             const response = await fetch(endpoint, { credentials: 'same-origin' });
@@ -708,7 +1021,19 @@
             return maEnabled;
         }
 
-        return { load, setMaEnabled, isMaEnabled };
+        function setPcEnabled(enabled) {
+            pcEnabled = !!enabled;
+            writePcEnabled(pcEnabled);
+            entry.setPcEnabled(pcEnabled);
+            setPcLegendVisible(entry.container, pcEnabled);
+            return pcEnabled;
+        }
+
+        function isPcEnabled() {
+            return pcEnabled;
+        }
+
+        return { load, setMaEnabled, isMaEnabled, setPcEnabled, isPcEnabled };
     }
 
     function createQuotesAutoRefresh({

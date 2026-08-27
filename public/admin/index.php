@@ -60,6 +60,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
             <span id="quotes-refresh-status" class="badge text-bg-secondary">автообновление 60с</span>
             <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
             <button type="button" class="btn btn-outline-warning btn-sm" id="toggle-ma" title="SMA 28">МА</button>
+            <button type="button" class="btn btn-outline-info btn-sm" id="toggle-pc" title="Price Channel + Trend Flip">PC</button>
             <button type="button" class="btn btn-outline-light btn-sm" id="refresh-charts">Обновить</button>
         </div>
     </div>
@@ -112,7 +113,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260802-3"></script>
+<script src="/admin/assets/js/charts.js?v=20260827-1"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const dashboard = window.TradeSignalsCharts.createDashboard({
@@ -137,6 +138,26 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
         maBtn?.addEventListener('click', () => {
             dashboard.setMaEnabled(!dashboard.isMaEnabled());
             syncMaButton();
+        });
+
+        const pcBtn = document.getElementById('toggle-pc');
+        const syncPcButton = () => {
+            if (!pcBtn) {
+                return;
+            }
+            const on = dashboard.isPcEnabled();
+            pcBtn.classList.toggle('btn-info', on);
+            pcBtn.classList.toggle('btn-outline-info', !on);
+            pcBtn.classList.toggle('text-dark', on);
+            pcBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            pcBtn.title = on
+                ? 'Скрыть Price Channel + Trend Flip'
+                : 'Показать Price Channel + Trend Flip';
+        };
+        syncPcButton();
+        pcBtn?.addEventListener('click', () => {
+            dashboard.setPcEnabled(!dashboard.isPcEnabled());
+            syncPcButton();
         });
 
         const refreshQuotes = window.TradeSignalsCharts.createQuotesAutoRefresh({

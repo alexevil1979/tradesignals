@@ -45,6 +45,26 @@
     pointer-events: none;
 }
 
+.chart-pc-legend {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    max-width: 55%;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0.3rem 0.45rem;
+    border-radius: 4px;
+    border: 1px solid #30363d;
+    background: rgba(13, 17, 23, 0.88);
+    pointer-events: none;
+}
+
 .chart-last-signal {
     font-size: 0.8rem;
     font-weight: 500;
