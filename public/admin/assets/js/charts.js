@@ -3,8 +3,8 @@
 
     const RIGHT_OFFSET_BARS = 300;
     const VIEW_STORAGE_KEY = 'tradesignals.chartView.v2';
-    const MA_STORAGE_KEY = 'tradesignals.chartMa.v1';
-    const PC_STORAGE_KEY = 'tradesignals.chartPc.v1';
+    const MA_STORAGE_KEY = 'tradesignals.chartMa.v2';
+    const PC_STORAGE_KEY = 'tradesignals.chartPc.v2';
     const TF_STORAGE_KEY = 'tradesignals.chartTf.v1';
     const TF_COOKIE = 'tradesignals_chart_tf';
     const MA_PERIODS = [
@@ -50,36 +50,59 @@
         return null;
     }
 
-    function readMaEnabled() {
+    function readIndicatorMap(storageKey) {
         try {
-            return localStorage.getItem(MA_STORAGE_KEY) === '1';
+            const raw = localStorage.getItem(storageKey);
+            if (!raw) {
+                return {};
+            }
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : {};
         } catch (_error) {
-            return false;
+            return {};
         }
     }
 
-    function writeMaEnabled(enabled) {
+    function writeIndicatorMap(storageKey, map) {
         try {
-            localStorage.setItem(MA_STORAGE_KEY, enabled ? '1' : '0');
+            localStorage.setItem(storageKey, JSON.stringify(map));
         } catch (_error) {
             // ignore
         }
     }
 
-    function readPcEnabled() {
-        try {
-            return localStorage.getItem(PC_STORAGE_KEY) === '1';
-        } catch (_error) {
+    function readMaEnabled(timeframe) {
+        if (!timeframe) {
             return false;
         }
+        const map = readIndicatorMap(MA_STORAGE_KEY);
+        return map[timeframe] === '1';
     }
 
-    function writePcEnabled(enabled) {
-        try {
-            localStorage.setItem(PC_STORAGE_KEY, enabled ? '1' : '0');
-        } catch (_error) {
-            // ignore
+    function writeMaEnabled(timeframe, enabled) {
+        if (!timeframe) {
+            return;
         }
+        const map = readIndicatorMap(MA_STORAGE_KEY);
+        map[timeframe] = enabled ? '1' : '0';
+        writeIndicatorMap(MA_STORAGE_KEY, map);
+    }
+
+    function readPcEnabled(timeframe) {
+        if (!timeframe) {
+            return false;
+        }
+        const map = readIndicatorMap(PC_STORAGE_KEY);
+        return map[timeframe] === '1';
+    }
+
+    function writePcEnabled(timeframe, enabled) {
+        if (!timeframe) {
+            return;
+        }
+        const map = readIndicatorMap(PC_STORAGE_KEY);
+        map[timeframe] = enabled ? '1' : '0';
+        writeIndicatorMap(PC_STORAGE_KEY, map);
     }
 
     /** Простая скользящая средняя по close. */
@@ -770,8 +793,6 @@
     function createDashboard({ endpoint, containerSelector, priceSelector }) {
         const hosts = Array.from(document.querySelectorAll(containerSelector));
         const charts = new Map();
-        let maEnabled = readMaEnabled();
-        let pcEnabled = readPcEnabled();
 
         hosts.forEach((host) => {
             const entry = createChart(host);
@@ -782,6 +803,8 @@
                 entry.container,
                 `dashboard:${label}`
             );
+            const maEnabled = readMaEnabled(label);
+            const pcEnabled = readPcEnabled(label);
             entry.setMaEnabled(maEnabled);
             setMaLegendVisible(entry.container, maEnabled);
             entry.setPcEnabled(pcEnabled);
@@ -789,32 +812,36 @@
             charts.set(label, entry);
         });
 
-        function setMaEnabled(enabled) {
-            maEnabled = !!enabled;
-            writeMaEnabled(maEnabled);
-            charts.forEach((entry) => {
-                entry.setMaEnabled(maEnabled);
-                setMaLegendVisible(entry.container, maEnabled);
-            });
-            return maEnabled;
+        function setMaEnabled(timeframe, enabled) {
+            const tf = String(timeframe || '');
+            const on = !!enabled;
+            writeMaEnabled(tf, on);
+            const entry = charts.get(tf);
+            if (entry) {
+                entry.setMaEnabled(on);
+                setMaLegendVisible(entry.container, on);
+            }
+            return on;
         }
 
-        function isMaEnabled() {
-            return maEnabled;
+        function isMaEnabled(timeframe) {
+            return readMaEnabled(String(timeframe || ''));
         }
 
-        function setPcEnabled(enabled) {
-            pcEnabled = !!enabled;
-            writePcEnabled(pcEnabled);
-            charts.forEach((entry) => {
-                entry.setPcEnabled(pcEnabled);
-                setPcLegendVisible(entry.container, pcEnabled);
-            });
-            return pcEnabled;
+        function setPcEnabled(timeframe, enabled) {
+            const tf = String(timeframe || '');
+            const on = !!enabled;
+            writePcEnabled(tf, on);
+            const entry = charts.get(tf);
+            if (entry) {
+                entry.setPcEnabled(on);
+                setPcLegendVisible(entry.container, on);
+            }
+            return on;
         }
 
-        function isPcEnabled() {
-            return pcEnabled;
+        function isPcEnabled(timeframe) {
+            return readPcEnabled(String(timeframe || ''));
         }
 
         async function load() {
@@ -894,8 +921,9 @@
         return { load, setMaEnabled, isMaEnabled, setPcEnabled, isPcEnabled };
     }
 
-    function createSingleChart({ endpoint, containerId, viewKey }) {
+    function createSingleChart({ endpoint, containerId, viewKey, interval }) {
         const container = document.getElementById(containerId);
+        const timeframe = String(interval || '');
         if (!container) {
             return {
                 load: async () => {},
@@ -912,8 +940,8 @@
             entry.container,
             viewKey || `single:${containerId}`
         );
-        let maEnabled = readMaEnabled();
-        let pcEnabled = readPcEnabled();
+        let maEnabled = readMaEnabled(timeframe);
+        let pcEnabled = readPcEnabled(timeframe);
         entry.setMaEnabled(maEnabled);
         setMaLegendVisible(entry.container, maEnabled);
         entry.setPcEnabled(pcEnabled);
@@ -950,7 +978,7 @@
 
         function setMaEnabled(enabled) {
             maEnabled = !!enabled;
-            writeMaEnabled(maEnabled);
+            writeMaEnabled(timeframe, maEnabled);
             entry.setMaEnabled(maEnabled);
             setMaLegendVisible(entry.container, maEnabled);
             return maEnabled;
@@ -962,7 +990,7 @@
 
         function setPcEnabled(enabled) {
             pcEnabled = !!enabled;
-            writePcEnabled(pcEnabled);
+            writePcEnabled(timeframe, pcEnabled);
             entry.setPcEnabled(pcEnabled);
             setPcLegendVisible(entry.container, pcEnabled);
             return pcEnabled;

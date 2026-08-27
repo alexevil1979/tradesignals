@@ -88,7 +88,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260828-4"></script>
+<script src="/admin/assets/js/charts.js?v=20260828-5"></script>
 <script>
     document.addEventListener('DOMContentLoaded', async () => {
         const activeTf = <?= json_encode($active, JSON_UNESCAPED_UNICODE) ?>;
@@ -98,6 +98,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
             endpoint: '/api/candles.php?interval=<?= rawurlencode($active) ?>&limit=all',
             containerId: 'main-chart',
             viewKey: 'single:<?= rawurlencode($active) ?>',
+            interval: activeTf,
         });
 
         const maBtn = document.getElementById('toggle-ma');

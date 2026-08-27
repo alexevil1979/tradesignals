@@ -59,8 +59,6 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
             <?php endif; ?>
             <span id="quotes-refresh-status" class="badge text-bg-secondary">автообновление 60с</span>
             <span id="bot-status" class="badge text-bg-secondary">Статус…</span>
-            <button type="button" class="btn btn-outline-warning btn-sm" id="toggle-ma" title="SMA 28">МА</button>
-            <button type="button" class="btn btn-outline-info btn-sm" id="toggle-pc" title="Price Channel + Trend Flip">PC</button>
             <button type="button" class="btn btn-outline-success btn-sm" id="repair-gaps" title="Проверить и догрузить пропущенные свечи">Догрузить гэпы</button>
             <button type="button" class="btn btn-outline-light btn-sm" id="refresh-charts">Обновить</button>
         </div>
@@ -103,7 +101,17 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
                             <span class="chart-seq text-secondary fw-normal" data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"></span>
                             <span class="chart-last-signal text-secondary fw-normal ms-1" data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"></span>
                         </span>
-                        <small class="text-secondary chart-meta" data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>">загрузка…</small>
+                        <span class="d-flex align-items-center gap-1 flex-wrap">
+                            <button type="button"
+                                    class="btn btn-outline-warning btn-sm toggle-ma"
+                                    data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"
+                                    title="SMA 28">MA</button>
+                            <button type="button"
+                                    class="btn btn-outline-info btn-sm toggle-pc"
+                                    data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"
+                                    title="Price Channel + Trend Flip">PC</button>
+                            <small class="text-secondary chart-meta" data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>">загрузка…</small>
+                        </span>
                     </div>
                     <div class="card-body p-2">
                         <div class="chart-host" id="chart-<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>" data-interval="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"></div>
@@ -114,7 +122,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260828-4"></script>
+<script src="/admin/assets/js/charts.js?v=20260828-5"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const dashboard = window.TradeSignalsCharts.createDashboard({
@@ -123,42 +131,50 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
             priceSelector: '#last-price',
         });
 
-        const maBtn = document.getElementById('toggle-ma');
-        const syncMaButton = () => {
-            if (!maBtn) {
+        const syncMaButton = (btn) => {
+            const label = btn.dataset.label;
+            if (!label) {
                 return;
             }
-            const on = dashboard.isMaEnabled();
-            maBtn.classList.toggle('btn-warning', on);
-            maBtn.classList.toggle('btn-outline-warning', !on);
-            maBtn.classList.toggle('text-dark', on);
-            maBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-            maBtn.title = on ? 'Скрыть SMA 28' : 'Показать SMA 28';
+            const on = dashboard.isMaEnabled(label);
+            btn.classList.toggle('btn-warning', on);
+            btn.classList.toggle('btn-outline-warning', !on);
+            btn.classList.toggle('text-dark', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.title = on ? 'Скрыть SMA 28' : 'Показать SMA 28';
         };
-        syncMaButton();
-        maBtn?.addEventListener('click', () => {
-            dashboard.setMaEnabled(!dashboard.isMaEnabled());
-            syncMaButton();
+
+        document.querySelectorAll('.toggle-ma').forEach((btn) => {
+            syncMaButton(btn);
+            btn.addEventListener('click', () => {
+                const label = btn.dataset.label;
+                dashboard.setMaEnabled(label, !dashboard.isMaEnabled(label));
+                syncMaButton(btn);
+            });
         });
 
-        const pcBtn = document.getElementById('toggle-pc');
-        const syncPcButton = () => {
-            if (!pcBtn) {
+        const syncPcButton = (btn) => {
+            const label = btn.dataset.label;
+            if (!label) {
                 return;
             }
-            const on = dashboard.isPcEnabled();
-            pcBtn.classList.toggle('btn-info', on);
-            pcBtn.classList.toggle('btn-outline-info', !on);
-            pcBtn.classList.toggle('text-dark', on);
-            pcBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-            pcBtn.title = on
+            const on = dashboard.isPcEnabled(label);
+            btn.classList.toggle('btn-info', on);
+            btn.classList.toggle('btn-outline-info', !on);
+            btn.classList.toggle('text-dark', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.title = on
                 ? 'Скрыть Price Channel + Trend Flip'
                 : 'Показать Price Channel + Trend Flip';
         };
-        syncPcButton();
-        pcBtn?.addEventListener('click', () => {
-            dashboard.setPcEnabled(!dashboard.isPcEnabled());
-            syncPcButton();
+
+        document.querySelectorAll('.toggle-pc').forEach((btn) => {
+            syncPcButton(btn);
+            btn.addEventListener('click', () => {
+                const label = btn.dataset.label;
+                dashboard.setPcEnabled(label, !dashboard.isPcEnabled(label));
+                syncPcButton(btn);
+            });
         });
 
         const refreshQuotes = window.TradeSignalsCharts.createQuotesAutoRefresh({
