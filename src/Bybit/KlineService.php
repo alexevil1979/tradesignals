@@ -20,6 +20,12 @@ final class KlineService
     private const PAGE_LIMIT = 200;
     private const MAX_INIT_BARS = 5000;
     private const MAINNET_KLINE_URL = 'https://api.bybit.com/v5/market/kline';
+    /** Сколько последних баров сканировать на внутренние разрывы. */
+    private const REPAIR_LOOKBACK = 400;
+    /** Макс. разрывов для догрузки за один запуск (на ТФ). */
+    private const MAX_GAPS_REPAIR = 6;
+    /** Макс. страниц API на один разрыв. */
+    private const MAX_FILL_PAGES = 20;
 
     /** Сколько последних баров подтягивать при обычном обновлении (как в example). */
     private const UPDATE_BARS = [
@@ -90,13 +96,18 @@ final class KlineService
 
         $gaps = $this->findGaps($symbol, $interval);
         $saved = 0;
+        $processed = 0;
         foreach ($gaps as $gap) {
+            if ($processed >= self::MAX_GAPS_REPAIR) {
+                break;
+            }
             $saved += $this->fillRange(
                 $symbol,
                 $interval,
                 (int) $gap['from_ts'],
                 (int) $gap['to_ts'],
             );
+            $processed++;
         }
 
         $recent = $this->updateRecent($symbol, $interval);
@@ -122,15 +133,30 @@ final class KlineService
     {
         $intervals = [];
         $totalSaved = 0;
+        $errors = [];
         foreach (Intervals::codes() as $interval) {
-            $result = $this->repairInterval($symbol, $interval);
-            $intervals[$interval] = $result;
-            $totalSaved += (int) ($result['saved'] ?? 0);
+            try {
+                $result = $this->repairInterval($symbol, $interval);
+                $intervals[$interval] = $result;
+                $totalSaved += (int) ($result['saved'] ?? 0);
+            } catch (\Throwable $exception) {
+                $message = $exception->getMessage();
+                $errors[$interval] = $message;
+                $intervals[$interval] = [
+                    'saved' => 0,
+                    'gaps_found' => 0,
+                    'gaps' => [],
+                    'mode' => 'error',
+                    'error' => $message,
+                ];
+            }
+            usleep(100_000);
         }
 
         return [
             'total_saved' => $totalSaved,
             'intervals' => $intervals,
+            'errors' => $errors,
         ];
     }
 
@@ -140,17 +166,31 @@ final class KlineService
     public function findGaps(string $symbol, string $interval): array
     {
         $step = $this->intervalSeconds($interval);
+
+        $lastStmt = $this->pdo->prepare(
+            'SELECT open_time FROM candles
+             WHERE symbol = :symbol AND interval_code = :interval
+             ORDER BY open_time DESC LIMIT 1'
+        );
+        $lastStmt->execute(['symbol' => $symbol, 'interval' => $interval]);
+        $lastTime = $lastStmt->fetchColumn();
+        if (!is_string($lastTime) || $lastTime === '') {
+            return [];
+        }
+
         $statement = $this->pdo->prepare(
             'SELECT open_time FROM candles
              WHERE symbol = :symbol AND interval_code = :interval
-             ORDER BY open_time ASC'
+             ORDER BY open_time DESC
+             LIMIT :limit'
         );
-        $statement->execute(['symbol' => $symbol, 'interval' => $interval]);
-        /** @var list<string> $times */
-        $times = $statement->fetchAll(PDO::FETCH_COLUMN);
-        if ($times === []) {
-            return [];
-        }
+        $statement->bindValue('symbol', $symbol);
+        $statement->bindValue('interval', $interval);
+        $statement->bindValue('limit', self::REPAIR_LOOKBACK, PDO::PARAM_INT);
+        $statement->execute();
+        /** @var list<string> $timesDesc */
+        $timesDesc = $statement->fetchAll(PDO::FETCH_COLUMN);
+        $times = array_reverse($timesDesc);
 
         $gaps = [];
         for ($i = 0; $i < count($times) - 1; $i++) {
@@ -177,10 +217,9 @@ final class KlineService
             ];
         }
 
-        $lastTime = $times[array_key_last($times)];
         $lastTs = strtotime($lastTime . ' UTC');
         if ($lastTs === false) {
-            return $gaps;
+            return $this->prioritizeGaps($gaps);
         }
 
         $now = time();
@@ -191,16 +230,38 @@ final class KlineService
             $cursor += $step;
         }
         if ($missingTail > 0) {
-            $gaps[] = [
+            array_unshift($gaps, [
                 'type' => 'tail',
                 'after' => $lastTime,
                 'from_ts' => $lastTs + $step,
                 'to_ts' => $now,
                 'missing_bars' => $missingTail,
-            ];
+            ]);
         }
 
-        return $gaps;
+        return $this->prioritizeGaps($gaps);
+    }
+
+    /**
+     * Хвост первым, затем самые свежие внутренние разрывы.
+     *
+     * @param list<array{type: string, after?: string, before?: string, from_ts: int, to_ts: int, missing_bars: int}> $gaps
+     * @return list<array{type: string, after?: string, before?: string, from_ts: int, to_ts: int, missing_bars: int}>
+     */
+    private function prioritizeGaps(array $gaps): array
+    {
+        $tail = [];
+        $internal = [];
+        foreach ($gaps as $gap) {
+            if (($gap['type'] ?? '') === 'tail') {
+                $tail[] = $gap;
+            } else {
+                $internal[] = $gap;
+            }
+        }
+        usort($internal, static fn (array $a, array $b): int => ($b['from_ts'] ?? 0) <=> ($a['from_ts'] ?? 0));
+
+        return array_merge($tail, $internal);
     }
 
     /** Полная очистка свечей инструмента (кривые данные). */
@@ -306,7 +367,7 @@ final class KlineService
         return ['saved' => $this->save($symbol, $interval, $rows)];
     }
 
-    /** Догрузка диапазона [fromTs, toTs] (unix sec, UTC). */
+    /** Догрузка диапазона [fromTs, toTs] (unix sec, UTC) — постранично через end, как initialBackfill. */
     private function fillRange(string $symbol, string $interval, int $fromTs, int $toTs): int
     {
         if ($fromTs > $toTs) {
@@ -314,42 +375,44 @@ final class KlineService
         }
 
         $step = $this->intervalSeconds($interval);
-        $startMs = $fromTs * 1000;
-        $endMs = $toTs * 1000;
+        $endTime = min($toTs, time());
         $saved = 0;
-        $cursorEnd = $endMs;
         $pages = 0;
 
-        while ($startMs <= $cursorEnd && $pages < 50) {
+        while ($endTime >= $fromTs && $pages < self::MAX_FILL_PAGES) {
             $pages++;
-            $rows = $this->fetchMainnetPage($symbol, $interval, self::PAGE_LIMIT, $startMs, $cursorEnd);
+            $rows = $this->fetchMainnetPage($symbol, $interval, self::PAGE_LIMIT, null, $endTime * 1000);
             if ($rows === []) {
                 break;
             }
 
             usort($rows, static fn (array $a, array $b): int => strcmp($a['open_time'], $b['open_time']));
-            $saved += $this->save($symbol, $interval, $rows);
 
-            $minOpenTs = null;
+            $batch = [];
+            $pageMinTs = null;
             foreach ($rows as $row) {
                 $openTs = strtotime($row['open_time'] . ' UTC');
                 if ($openTs === false) {
                     continue;
                 }
-                if ($minOpenTs === null || $openTs < $minOpenTs) {
-                    $minOpenTs = $openTs;
+                if ($pageMinTs === null || $openTs < $pageMinTs) {
+                    $pageMinTs = $openTs;
                 }
+                if ($openTs < $fromTs || $openTs > $toTs) {
+                    continue;
+                }
+                $batch[] = $row;
             }
 
-            if ($minOpenTs === null || count($rows) < self::PAGE_LIMIT) {
+            if ($batch !== []) {
+                $saved += $this->save($symbol, $interval, $batch);
+            }
+
+            if ($pageMinTs === null || $pageMinTs <= $fromTs || count($rows) < self::PAGE_LIMIT) {
                 break;
             }
 
-            if ($minOpenTs * 1000 <= $startMs) {
-                break;
-            }
-
-            $cursorEnd = ($minOpenTs - $step) * 1000;
+            $endTime = $pageMinTs - $step;
             usleep(200_000);
         }
 

@@ -1141,29 +1141,39 @@
                     },
                     body: `csrf_token=${encodeURIComponent(csrfToken)}`,
                 });
-                const payload = await response.json();
+                let payload = null;
+                try {
+                    payload = await response.json();
+                } catch (_parseError) {
+                    throw new Error(`HTTP ${response.status}: ответ не JSON`);
+                }
                 if (!response.ok || !payload.ok) {
-                    throw new Error(payload.error || 'Ошибка догрузки котировок');
+                    throw new Error(payload?.error || `HTTP ${response.status}`);
                 }
                 if (typeof onAfterRepair === 'function') {
                     await onAfterRepair(payload);
                 }
                 const gaps = Number(payload.total_gaps ?? 0);
                 const saved = Number(payload.total_saved ?? 0);
+                const warnCount = payload.errors ? Object.keys(payload.errors).length : 0;
                 const now = new Date();
                 const stamp = now.toLocaleTimeString('ru-RU', {
                     hour: '2-digit',
                     minute: '2-digit',
                     second: '2-digit',
                 });
-                if (gaps === 0) {
+                if (warnCount > 0) {
+                    setStatus(`частично: +${saved} бар · ${stamp}`, 'warning');
+                } else if (gaps === 0) {
                     setStatus(`разрывов нет · ${stamp}`, 'success');
                 } else {
                     setStatus(`догружено ${saved} бар · ${gaps} разр. · ${stamp}`, 'success');
                 }
                 return payload;
             } catch (error) {
-                setStatus('ошибка догрузки', 'danger');
+                const msg = error instanceof Error ? error.message : 'ошибка догрузки';
+                const short = msg.length > 48 ? `${msg.slice(0, 45)}…` : msg;
+                setStatus(short, 'danger');
                 console.error(error);
                 throw error;
             } finally {

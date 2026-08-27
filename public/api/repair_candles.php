@@ -32,6 +32,9 @@ if (!$auth->verifyCsrf(is_string($csrf) ? $csrf : null)) {
 }
 
 try {
+    set_time_limit(300);
+    ignore_user_abort(true);
+
     $bybitConfig = $config['bybit'];
     $symbol = (string) $bybitConfig['symbol'];
     $settings = new SettingsRepository($pdo);
@@ -50,22 +53,39 @@ try {
         $summary[$label] = [
             'gaps_found' => $gapsFound,
             'saved' => (int) ($row['saved'] ?? 0),
-            'gaps' => $row['gaps'] ?? [],
+            'error' => isset($row['error']) ? (string) $row['error'] : null,
         ];
     }
+
+    $errors = is_array($repair['errors'] ?? null) ? $repair['errors'] : [];
+    $ok = $errors === [] || (int) ($repair['total_saved'] ?? 0) > 0;
 
     $logger->info('Догрузка пропущенных котировок с Dashboard.', [
         'symbol' => $symbol,
         'total_saved' => $repair['total_saved'],
         'total_gaps' => $totalGaps,
+        'errors' => $errors,
         'intervals' => $summary,
     ], 'quotes');
+
+    if (!$ok) {
+        $firstError = $errors !== [] ? (string) reset($errors) : 'Не удалось догрузить котировки';
+        http_response_code(500);
+        echo json_encode([
+            'ok' => false,
+            'error' => $firstError,
+            'errors' => $errors,
+            'intervals' => $summary,
+        ], JSON_THROW_ON_ERROR);
+        exit;
+    }
 
     echo json_encode([
         'ok' => true,
         'total_saved' => $repair['total_saved'],
         'total_gaps' => $totalGaps,
         'intervals' => $summary,
+        'errors' => $errors,
         'updated_at' => gmdate('Y-m-d H:i:s') . ' UTC',
     ], JSON_THROW_ON_ERROR);
 } catch (Throwable $exception) {
