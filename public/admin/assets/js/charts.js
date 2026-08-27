@@ -12,7 +12,6 @@
     ];
     /** Параметры как в Pine «Price Channel + Trend Flip». */
     const PC_LENGTH = 20;
-    const TREND_FLIP_LINES = 5;
 
     function persistChartTimeframe(tf) {
         if (!tf || typeof tf !== 'string') {
@@ -167,16 +166,11 @@
         return markers;
     }
 
-    /**
-     * Trend Flip (Pine): стрелки разворота + последние уровни flipLevel.
-     * @returns {{markers: array, upLevels: number[], downLevels: number[]}}
-     */
-    function computeTrendFlip(candles, linesCount = TREND_FLIP_LINES) {
+    /** Trend Flip (Pine): стрелки разворота. */
+    function computeTrendFlip(candles) {
         const markers = [];
-        const upLevels = [];
-        const downLevels = [];
         if (!Array.isArray(candles) || candles.length === 0) {
-            return { markers, upLevels, downLevels };
+            return markers;
         }
 
         let trend = null;
@@ -188,7 +182,6 @@
             const open = Number(candles[i].open);
             const close = Number(candles[i].close);
             let flip = false;
-            let flipLevel = null;
 
             if (lastFlipClose === null) {
                 trend = close > open ? 'up' : 'down';
@@ -204,7 +197,6 @@
                         extremeOpen = open;
                     }
                 } else if (close < extremeOpen) {
-                    flipLevel = extremeOpen;
                     flip = true;
                     trend = 'down';
                     extremeClose = close;
@@ -217,7 +209,6 @@
                         extremeOpen = open;
                     }
                 } else if (close > extremeOpen) {
-                    flipLevel = extremeOpen;
                     flip = true;
                     trend = 'up';
                     extremeClose = close;
@@ -238,12 +229,6 @@
                         shape: 'arrowUp',
                         text: delta > 0 ? `↑ ${Math.round(delta)}` : '↑',
                     });
-                    if (flipLevel != null && Number.isFinite(flipLevel)) {
-                        upLevels.unshift(flipLevel);
-                        if (upLevels.length > linesCount) {
-                            upLevels.length = linesCount;
-                        }
-                    }
                 } else {
                     markers.push({
                         time: candles[i].time,
@@ -252,18 +237,12 @@
                         shape: 'arrowDown',
                         text: delta > 0 ? `↓ ${Math.round(delta)}` : '↓',
                     });
-                    if (flipLevel != null && Number.isFinite(flipLevel)) {
-                        downLevels.unshift(flipLevel);
-                        if (downLevels.length > linesCount) {
-                            downLevels.length = linesCount;
-                        }
-                    }
                 }
                 lastFlipClose = close;
             }
         }
 
-        return { markers, upLevels, downLevels };
+        return markers;
     }
 
     function mergeMarkers(...groups) {
@@ -288,9 +267,6 @@
         }
         return all;
     }
-
-    const PC_LINE_GREENS = ['#16a34a', '#22c55e', '#4ade80', '#86efac', '#bbf7d0'];
-    const PC_LINE_REDS = ['#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca'];
 
     function createChart(container) {
         const chart = LightweightCharts.createChart(container, {
@@ -337,19 +313,6 @@
         let lastCandles = [];
         let maEnabled = false;
         let pcEnabled = false;
-        /** @type {Array<{remove: Function}>} */
-        let pcPriceLines = [];
-
-        const clearPcPriceLines = () => {
-            pcPriceLines.forEach((line) => {
-                try {
-                    series.removePriceLine(line);
-                } catch (_error) {
-                    // ignore
-                }
-            });
-            pcPriceLines = [];
-        };
 
         const applyMaData = () => {
             MA_PERIODS.forEach((item) => {
