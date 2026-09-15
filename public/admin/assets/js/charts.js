@@ -291,7 +291,12 @@
         return all;
     }
 
-    function createChart(container) {
+    function createChart(container, options = {}) {
+        const enableDgDrag = !!options.enableDgDrag;
+        const onDgLevelsCommit = typeof options.onDgLevelsCommit === 'function'
+            ? options.onDgLevelsCommit
+            : null;
+
         const chart = LightweightCharts.createChart(container, {
             layout: {
                 background: { color: '#0d1117' },
@@ -337,6 +342,12 @@
         let maEnabled = false;
         let pcEnabled = false;
         const dgPriceLines = [];
+        let dgLinesMeta = [];
+        let dgOverlayState = null;
+        let dgDragging = false;
+        let dgDragMeta = null;
+        let dgSaveTimer = null;
+        let dgScrollBackup = null;
 
         const clearDgPriceLines = () => {
             while (dgPriceLines.length > 0) {
@@ -347,54 +358,284 @@
                     // ignore
                 }
             }
+            dgLinesMeta = [];
+        };
+
+        const formatDgTitle = (role, index, price) => {
+            if (!dgOverlayState || !Number.isFinite(dgOverlayState.anchor) || !Number.isFinite(price)) {
+                if (role === 'level') {
+                    return `L${index + 1}`;
+                }
+                return role.toUpperCase();
+            }
+            const anchor = Number(dgOverlayState.anchor);
+            const offset = Math.max(0, Math.abs(price - anchor));
+            const offsetLabel = Math.round(offset);
+            if (role === 'level') {
+                return `L${index + 1} ${offsetLabel}`;
+            }
+            if (role === 'tp') {
+                return `TP ${offsetLabel}`;
+            }
+            if (role === 'sl') {
+                return `SL ${offsetLabel}`;
+            }
+            return role.toUpperCase();
         };
 
         const setDgOverlay = (overlay) => {
+            if (dgDragging) {
+                return;
+            }
             clearDgPriceLines();
-            if (!overlay || !overlay.show_h1) {
+            dgOverlayState = overlay && overlay.show_h1 ? overlay : null;
+            if (!dgOverlayState) {
                 return;
             }
 
-            const addLine = (price, color, title, style) => {
+            const addLine = (price, color, title, style, meta) => {
                 if (!Number.isFinite(price)) {
                     return;
                 }
                 const line = series.createPriceLine({
                     price,
                     color,
-                    lineWidth: 2,
+                    lineWidth: meta && meta.draggable ? 3 : 2,
                     lineStyle: style,
                     axisLabelVisible: true,
                     title,
                 });
                 dgPriceLines.push(line);
+                if (meta) {
+                    dgLinesMeta.push({ ...meta, line, color, style });
+                }
             };
 
-            if (overlay.anchor != null) {
+            if (dgOverlayState.anchor != null) {
                 addLine(
-                    Number(overlay.anchor),
+                    Number(dgOverlayState.anchor),
                     '#38bdf8',
-                    overlay.mode === 'low' ? 'Low' : 'High',
-                    LightweightCharts.LineStyle.Dashed
+                    dgOverlayState.mode === 'low' ? 'Low' : 'High',
+                    LightweightCharts.LineStyle.Dashed,
+                    { role: 'anchor', draggable: false }
                 );
             }
             const levelColors = ['#fbbf24', '#f59e0b', '#d97706'];
-            (overlay.levels || []).forEach((lvl) => {
+            (dgOverlayState.levels || []).forEach((lvl) => {
                 const idx = Number(lvl.index ?? 0);
+                const price = Number(lvl.price);
                 addLine(
-                    Number(lvl.price),
+                    price,
                     levelColors[idx] || '#fbbf24',
-                    String(lvl.title || `L${idx + 1}`),
-                    LightweightCharts.LineStyle.Solid
+                    formatDgTitle('level', idx, price),
+                    LightweightCharts.LineStyle.Solid,
+                    { role: 'level', index: idx, draggable: enableDgDrag }
                 );
             });
-            if (overlay.tp != null) {
-                addLine(Number(overlay.tp), '#22c55e', 'TP', LightweightCharts.LineStyle.Dotted);
+            if (dgOverlayState.tp != null) {
+                const price = Number(dgOverlayState.tp);
+                addLine(
+                    price,
+                    '#22c55e',
+                    formatDgTitle('tp', 0, price),
+                    LightweightCharts.LineStyle.Dotted,
+                    { role: 'tp', draggable: enableDgDrag }
+                );
             }
-            if (overlay.sl != null) {
-                addLine(Number(overlay.sl), '#ef4444', 'SL', LightweightCharts.LineStyle.Dotted);
+            if (dgOverlayState.sl != null) {
+                const price = Number(dgOverlayState.sl);
+                addLine(
+                    price,
+                    '#ef4444',
+                    formatDgTitle('sl', 0, price),
+                    LightweightCharts.LineStyle.Dotted,
+                    { role: 'sl', draggable: enableDgDrag }
+                );
             }
         };
+
+        const clampDragPrice = (role, rawPrice) => {
+            if (!dgOverlayState || !Number.isFinite(dgOverlayState.anchor)) {
+                return rawPrice;
+            }
+            const anchor = Number(dgOverlayState.anchor);
+            const mode = dgOverlayState.mode === 'low' ? 'low' : 'high';
+            if (role === 'level' || role === 'sl') {
+                if (mode === 'high') {
+                    return Math.min(rawPrice, anchor - 0.01);
+                }
+                return Math.max(rawPrice, anchor + 0.01);
+            }
+            if (role === 'tp') {
+                if (mode === 'high') {
+                    return Math.max(rawPrice, anchor + 0.01);
+                }
+                return Math.min(rawPrice, anchor - 0.01);
+            }
+            return rawPrice;
+        };
+
+        const collectDgCommitPayload = () => {
+            if (!dgOverlayState || !Number.isFinite(dgOverlayState.anchor)) {
+                return null;
+            }
+            const anchor = Number(dgOverlayState.anchor);
+            const mode = dgOverlayState.mode === 'low' ? 'low' : 'high';
+            const levels = [null, null, null];
+            let profit = null;
+            let stop = null;
+            dgLinesMeta.forEach((meta) => {
+                const price = Number(meta.line.options().price);
+                if (!Number.isFinite(price)) {
+                    return;
+                }
+                const offset = Math.max(0.01, Math.abs(price - anchor));
+                if (meta.role === 'level' && meta.index >= 0 && meta.index < 3) {
+                    // Для high — уровень ниже хая; для low — выше лоя.
+                    const levelOffset = Math.max(
+                        0.01,
+                        mode === 'low' ? price - anchor : anchor - price
+                    );
+                    levels[meta.index] = { offset: levelOffset };
+                } else if (meta.role === 'tp') {
+                    profit = offset;
+                } else if (meta.role === 'sl') {
+                    stop = offset;
+                }
+            });
+            if (levels.some((row) => row === null)) {
+                return null;
+            }
+            return { levels, profit, stop };
+        };
+
+        const commitDgDrag = () => {
+            const payload = collectDgCommitPayload();
+            if (!payload || !onDgLevelsCommit) {
+                return;
+            }
+            if (dgSaveTimer !== null) {
+                window.clearTimeout(dgSaveTimer);
+            }
+            dgSaveTimer = window.setTimeout(() => {
+                dgSaveTimer = null;
+                Promise.resolve(onDgLevelsCommit(payload))
+                    .then((result) => {
+                        if (result && result.direction_grid) {
+                            setDgOverlay(result.direction_grid);
+                        }
+                    })
+                    .catch((error) => {
+                        console.error(error);
+                    });
+            }, 250);
+        };
+
+        const hitDgLine = (y) => {
+            let best = null;
+            let bestDist = 8;
+            dgLinesMeta.forEach((meta) => {
+                if (!meta.draggable) {
+                    return;
+                }
+                const price = Number(meta.line.options().price);
+                const coord = series.priceToCoordinate(price);
+                if (coord == null) {
+                    return;
+                }
+                const dist = Math.abs(coord - y);
+                if (dist <= bestDist) {
+                    bestDist = dist;
+                    best = meta;
+                }
+            });
+            return best;
+        };
+
+        if (enableDgDrag) {
+            container.style.touchAction = 'none';
+            container.addEventListener('pointerdown', (event) => {
+                if (event.button !== 0 || !dgOverlayState) {
+                    return;
+                }
+                const rect = container.getBoundingClientRect();
+                const y = event.clientY - rect.top;
+                const hit = hitDgLine(y);
+                if (!hit) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                dgDragging = true;
+                dgDragMeta = hit;
+                container.setPointerCapture(event.pointerId);
+                container.style.cursor = 'ns-resize';
+                dgScrollBackup = {
+                    vertTouchDrag: true,
+                    pressedMouseMove: true,
+                };
+                chart.applyOptions({
+                    handleScroll: {
+                        vertTouchDrag: false,
+                        pressedMouseMove: false,
+                    },
+                    handleScale: {
+                        axisPressedMouseMove: { time: true, price: false },
+                    },
+                });
+            });
+
+            container.addEventListener('pointermove', (event) => {
+                if (!dgDragging || !dgDragMeta) {
+                    if (!dgOverlayState) {
+                        return;
+                    }
+                    const rect = container.getBoundingClientRect();
+                    const y = event.clientY - rect.top;
+                    container.style.cursor = hitDgLine(y) ? 'ns-resize' : '';
+                    return;
+                }
+                const rect = container.getBoundingClientRect();
+                const y = event.clientY - rect.top;
+                const rawPrice = series.coordinateToPrice(y);
+                if (rawPrice == null || !Number.isFinite(rawPrice)) {
+                    return;
+                }
+                const price = clampDragPrice(dgDragMeta.role, Number(rawPrice));
+                dgDragMeta.line.applyOptions({
+                    price,
+                    title: formatDgTitle(dgDragMeta.role, dgDragMeta.index || 0, price),
+                });
+            });
+
+            const endDrag = (event) => {
+                if (!dgDragging) {
+                    return;
+                }
+                dgDragging = false;
+                dgDragMeta = null;
+                container.style.cursor = '';
+                try {
+                    container.releasePointerCapture(event.pointerId);
+                } catch (_error) {
+                    // ignore
+                }
+                chart.applyOptions({
+                    handleScroll: {
+                        vertTouchDrag: true,
+                        pressedMouseMove: true,
+                    },
+                    handleScale: {
+                        axisPressedMouseMove: { time: true, price: true },
+                    },
+                });
+                dgScrollBackup = null;
+                commitDgDrag();
+            };
+
+            container.addEventListener('pointerup', endDrag);
+            container.addEventListener('pointercancel', endDrag);
+        }
 
         const applyMaData = () => {
             MA_PERIODS.forEach((item) => {
@@ -850,13 +1091,42 @@
         return { setCandles };
     }
 
-    function createDashboard({ endpoint, containerSelector, priceSelector }) {
+    function createDashboard({ endpoint, containerSelector, priceSelector, csrfToken }) {
         const hosts = Array.from(document.querySelectorAll(containerSelector));
         const charts = new Map();
 
+        async function saveDgLevels(payload) {
+            if (!csrfToken) {
+                throw new Error('Нет CSRF для сохранения уровней.');
+            }
+            const response = await fetch('/api/direction_grid_levels.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    Accept: 'application/json',
+                },
+                body: JSON.stringify({
+                    csrf_token: csrfToken,
+                    levels: payload.levels,
+                    profit: payload.profit,
+                    stop: payload.stop,
+                }),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'Не удалось сохранить уровни.');
+            }
+            return data;
+        }
+
         hosts.forEach((host) => {
-            const entry = createChart(host);
             const label = host.dataset.interval;
+            const entry = createChart(host, {
+                enableDgDrag: label === 'H1',
+                onDgLevelsCommit: label === 'H1' ? saveDgLevels : null,
+            });
             entry.view = bindViewPersistence(
                 entry.chart,
                 entry.series,

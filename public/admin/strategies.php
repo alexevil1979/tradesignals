@@ -945,7 +945,8 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                 Боевой режим требует <code>trading_enabled=1</code>; в тестовом ордера эмулируются, все события уходят в Telegram.
                                 <strong>Звук / Telegram:</strong> галочки в таблице уровней — бип в браузере, пока цена за уровнем,
                                 и уведомления Telegram по событиям этого уровня (постановка/fill).
-                                <strong>Уровни на H1:</strong> High/Low, L1–L3, TP/SL на графике H1 Dashboard.
+                                <strong>Уровни на H1:</strong> High/Low, L1–L3, TP/SL на графике H1 Dashboard;
+                                L1–L3 / TP / SL можно перетаскивать мышью — отступы сохраняются автоматически.
                             </p>
                             <div class="d-flex gap-2 align-items-center flex-wrap">
                                 <div class="form-check form-switch mb-0">
