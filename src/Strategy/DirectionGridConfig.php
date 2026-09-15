@@ -25,7 +25,7 @@ final class DirectionGridConfig
      *   profit: float|int,
      *   stop: float|int,
      *   after_tp: 'rebuild'|'stop',
-     *   levels: list<array{offset: float|int, size: string}>
+     *   levels: list<array{offset: float|int, size: string, sound: bool, telegram: bool}>
      * }
      */
     public static function defaults(): array
@@ -41,9 +41,9 @@ final class DirectionGridConfig
             'stop' => 900,
             'after_tp' => 'rebuild',
             'levels' => [
-                ['offset' => 300, 'size' => '0.001'],
-                ['offset' => 600, 'size' => '0.001'],
-                ['offset' => 900, 'size' => '0.001'],
+                ['offset' => 300, 'size' => '0.001', 'sound' => false, 'telegram' => true],
+                ['offset' => 600, 'size' => '0.001', 'sound' => false, 'telegram' => true],
+                ['offset' => 900, 'size' => '0.001', 'sound' => false, 'telegram' => true],
             ],
         ];
     }
@@ -150,19 +150,27 @@ final class DirectionGridConfig
 
         $levels = [];
         $rawLevels = is_array($raw['levels'] ?? null) ? $raw['levels'] : $defaults['levels'];
+        $legacySoundL1 = self::toBool($raw['sound_l1'] ?? false);
         for ($i = 0; $i < 3; $i++) {
             $row = is_array($rawLevels[$i] ?? null) ? $rawLevels[$i] : $defaults['levels'][$i];
             $offset = isset($row['offset']) && is_numeric($row['offset']) ? 0 + $row['offset'] : $defaults['levels'][$i]['offset'];
+            $soundDefault = $i === 0 && $legacySoundL1;
             $levels[] = [
                 'offset' => max(0.01, $offset),
                 'size' => self::toSize($row['size'] ?? $defaults['levels'][$i]['size']),
+                'sound' => array_key_exists('sound', $row)
+                    ? self::toBool($row['sound'])
+                    : $soundDefault,
+                'telegram' => array_key_exists('telegram', $row)
+                    ? self::toBool($row['telegram'])
+                    : true,
             ];
         }
 
         return [
             'enabled' => self::toBool($raw['enabled'] ?? false),
             'test_mode' => self::toBool($raw['test_mode'] ?? false),
-            'sound_l1' => self::toBool($raw['sound_l1'] ?? false),
+            'sound_l1' => !empty($levels[0]['sound']),
             'chart_h1' => self::toBool($raw['chart_h1'] ?? false),
             'mode' => $mode,
             'period_minutes' => $period,
@@ -185,7 +193,7 @@ final class DirectionGridConfig
      *   profit: float|int,
      *   stop: float|int,
      *   after_tp: 'rebuild'|'stop',
-     *   levels: list<array{offset: float|int, size: string}>
+     *   levels: list<array{offset: float|int, size: string, sound: bool, telegram: bool}>
      * }
      */
     public static function fromPost(array $post): array
@@ -197,13 +205,14 @@ final class DirectionGridConfig
             $levels[] = [
                 'offset' => $row['offset'] ?? null,
                 'size' => $row['size'] ?? '0.001',
+                'sound' => isset($row['sound']),
+                'telegram' => isset($row['telegram']),
             ];
         }
 
         return self::normalize([
             'enabled' => isset($post['dg_enabled']),
             'test_mode' => isset($post['dg_test_mode']),
-            'sound_l1' => isset($post['dg_sound_l1']),
             'chart_h1' => isset($post['dg_chart_h1']),
             'mode' => $post['dg_mode'] ?? 'high',
             'period_minutes' => $post['dg_period_minutes'] ?? 60,
@@ -212,6 +221,18 @@ final class DirectionGridConfig
             'after_tp' => $post['dg_after_tp'] ?? 'rebuild',
             'levels' => $levels,
         ]);
+    }
+
+    /** Уровень с включённым Telegram (0-based). */
+    public static function levelTelegramEnabled(array $config, int $index0): bool
+    {
+        return !empty($config['levels'][$index0]['telegram']);
+    }
+
+    /** Уровень с включённым звуком (0-based). */
+    public static function levelSoundEnabled(array $config, int $index0): bool
+    {
+        return !empty($config['levels'][$index0]['sound']);
     }
 
     /**
@@ -250,7 +271,12 @@ final class DirectionGridConfig
             if (!is_array($row) || !isset($row['index']) || !is_numeric($row['price'] ?? null)) {
                 continue;
             }
-            $byIndex[(int) $row['index']] = (float) $row['price'];
+            $idx = (int) $row['index'];
+            // В state index 1..3 (L1..L3); в config — 0..2.
+            if ($idx >= 1 && $idx <= 3) {
+                $idx -= 1;
+            }
+            $byIndex[$idx] = (float) $row['price'];
         }
 
         for ($i = 0; $i < 3; $i++) {

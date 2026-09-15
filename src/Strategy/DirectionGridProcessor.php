@@ -20,6 +20,9 @@ final class DirectionGridProcessor
 {
     private bool $testMode = false;
 
+    /** @var array<string, mixed> */
+    private array $activeConfig = [];
+
     public function __construct(
         private readonly SettingsRepository $settings,
         private readonly CandleRepository $candles,
@@ -35,6 +38,7 @@ final class DirectionGridProcessor
     public function process(string $symbol): int
     {
         $config = $this->loadConfig();
+        $this->activeConfig = $config;
         if (empty($config['enabled'])) {
             return 0;
         }
@@ -448,11 +452,11 @@ final class DirectionGridProcessor
             ]);
             $this->notify(sprintf(
                 "📥 <b>Fill уровня [TEST]</b>\nУровень: <b>L%s</b>\nЦена ордера: <b>%s</b>\nClose: <b>%s</b>\nСторона: <b>%s</b>",
-                htmlspecialchars((string) ($level['index'] ?? '?'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars((string) (($level['index'] ?? 0)), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
                 htmlspecialchars(DirectionGridConfig::formatPrice($price), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
                 htmlspecialchars(DirectionGridConfig::formatPrice($lastClose), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
                 htmlspecialchars($side, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
-            ));
+            ), $this->levelIndex0($level));
             break; // один fill за тик
         }
         unset($level);
@@ -559,7 +563,7 @@ final class DirectionGridProcessor
                 htmlspecialchars($tpStr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
                 htmlspecialchars($slStr, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
                 htmlspecialchars($linkId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
-            ));
+            ), $index);
             $levels[] = [
                 'index' => $index + 1,
                 'link_id' => $linkId,
@@ -644,7 +648,7 @@ final class DirectionGridProcessor
                         'UTF-8'
                     ),
                     htmlspecialchars($link, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
-                ));
+                ), $this->levelIndex0($level));
                 $count++;
                 continue;
             }
@@ -740,13 +744,27 @@ final class DirectionGridProcessor
         ], 'trading');
     }
 
-    private function notify(string $message): void
+    private function notify(string $message, ?int $levelIndex0 = null): void
     {
+        if ($levelIndex0 !== null && !DirectionGridConfig::levelTelegramEnabled($this->activeConfig, $levelIndex0)) {
+            return;
+        }
         try {
             $this->telegram->send($message, ['source' => 'direction_grid']);
         } catch (Throwable) {
             // ignore
         }
+    }
+
+    /** @param array<string, mixed> $level */
+    private function levelIndex0(array $level): int
+    {
+        $idx = (int) ($level['index'] ?? 0);
+        if ($idx >= 1 && $idx <= 3) {
+            return $idx - 1;
+        }
+
+        return max(0, $idx);
     }
 
     /**

@@ -889,8 +889,8 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                 High → Buy-лимиты ниже хая; Low → Sell-лимиты выше лоя. Пока нет fill — сетка двигается за экстремумом раз в минуту.
                                 После fill — ждём TP/SL, незаполненные не двигаем.
                                 Боевой режим требует <code>trading_enabled=1</code>; в тестовом ордера эмулируются, все события уходят в Telegram.
-                                <strong>Звук L1:</strong> если цена ушла за первый уровень сетки (ниже L1 при слежении за хаем / выше L1 при лое) —
-                                в открытой вкладке админки мягкий бип каждые 10 с, до 20 раз; когда цена вернулась — останавливается.
+                                <strong>Звук / Telegram:</strong> галочки в таблице уровней — бип в браузере, пока цена за уровнем,
+                                и уведомления Telegram по событиям этого уровня (постановка/fill).
                                 <strong>Уровни на H1:</strong> High/Low, L1–L3, TP/SL на графике H1 Dashboard.
                             </p>
                             <div class="d-flex gap-2 align-items-center flex-wrap">
@@ -905,13 +905,6 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                            id="dg_test_mode" name="dg_test_mode" value="1"
                                         <?= !empty($directionGrid['test_mode']) ? 'checked' : '' ?>>
                                     <label class="form-check-label small text-warning" for="dg_test_mode">тестовый режим</label>
-                                </div>
-                                <div class="form-check form-switch mb-0">
-                                    <input class="form-check-input" type="checkbox" role="switch"
-                                           id="dg_sound_l1" name="dg_sound_l1" value="1"
-                                        <?= !empty($directionGrid['sound_l1']) ? 'checked' : '' ?>>
-                                    <label class="form-check-label small text-info" for="dg_sound_l1"
-                                           title="Бип каждые 10 с (до 20 раз), пока цена за L1; работает на любой странице админки">звук L1</label>
                                 </div>
                                 <div class="form-check form-switch mb-0">
                                     <input class="form-check-input" type="checkbox" role="switch"
@@ -975,6 +968,8 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                             <th class="text-center small">отступ $</th>
                                             <th class="text-center small">объём</th>
                                             <th class="text-center small">цена (превью)</th>
+                                            <th class="text-center small" title="Бип в админке, пока цена за уровнем">звук</th>
+                                            <th class="text-center small" title="Telegram при постановке/fill уровня">Telegram</th>
                                         </tr>
                                         </thead>
                                         <tbody>
@@ -999,6 +994,16 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                                 </td>
                                                 <td class="text-center small text-info">
                                                     <?= $preview !== null ? htmlspecialchars(DirectionGridConfig::formatPrice($preview), ENT_QUOTES, 'UTF-8') : '—' ?>
+                                                </td>
+                                                <td class="text-center">
+                                                    <input class="form-check-input" type="checkbox"
+                                                           name="dg_level[<?= $i ?>][sound]" value="1"
+                                                        <?= !empty($lvl['sound']) ? 'checked' : '' ?>>
+                                                </td>
+                                                <td class="text-center">
+                                                    <input class="form-check-input" type="checkbox"
+                                                           name="dg_level[<?= $i ?>][telegram]" value="1"
+                                                        <?= !empty($lvl['telegram']) ? 'checked' : '' ?>>
                                                 </td>
                                             </tr>
                                         <?php endfor; ?>

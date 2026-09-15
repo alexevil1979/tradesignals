@@ -51,50 +51,37 @@ if ($m1 !== []) {
 }
 
 $mode = (string) $configGrid['mode'];
-$l1 = null;
-$l1Source = null;
+$extremum = $candles->extremumLastMinutes($symbol, '1', (int) $configGrid['period_minutes']);
+$overlay = DirectionGridConfig::chartOverlay($configGrid, $state, $extremum);
 
-// Живой L1 из выставленной сетки, иначе превью от экстремума периода.
-foreach ($state['levels'] as $level) {
-    if ((int) ($level['index'] ?? -1) === 0 && isset($level['price']) && is_numeric($level['price'])) {
-        $l1 = (float) $level['price'];
-        $l1Source = 'grid';
-        break;
-    }
-}
-
-if ($l1 === null && isset($state['anchor']) && is_numeric($state['anchor'])) {
-    $offset = (float) ($configGrid['levels'][0]['offset'] ?? 0);
-    $anchor = (float) $state['anchor'];
-    $l1 = $mode === 'low' ? $anchor + $offset : $anchor - $offset;
-    $l1Source = 'anchor';
-}
-
-if ($l1 === null) {
-    $extremum = $candles->extremumLastMinutes($symbol, '1', (int) $configGrid['period_minutes']);
-    if ($extremum !== null) {
-        $anchor = $mode === 'low' ? (float) $extremum['low'] : (float) $extremum['high'];
-        $offset = (float) ($configGrid['levels'][0]['offset'] ?? 0);
-        $l1 = $mode === 'low' ? $anchor + $offset : $anchor - $offset;
-        $l1Source = 'preview';
-    }
-}
-
+$triggeredLevels = [];
 $triggered = false;
-if ($price !== null && $l1 !== null && !empty($configGrid['sound_l1'])) {
-    $triggered = $mode === 'low'
-        ? $price > $l1
-        : $price < $l1;
+if ($price !== null) {
+    foreach ($overlay['levels'] as $lvl) {
+        $idx = (int) ($lvl['index'] ?? -1);
+        if (!DirectionGridConfig::levelSoundEnabled($configGrid, $idx)) {
+            continue;
+        }
+        $lvlPrice = (float) $lvl['price'];
+        $hit = $mode === 'low' ? $price > $lvlPrice : $price < $lvlPrice;
+        if ($hit) {
+            $triggered = true;
+            $triggeredLevels[] = [
+                'index' => $idx,
+                'title' => (string) ($lvl['title'] ?? ('L' . ($idx + 1))),
+                'price' => $lvlPrice,
+            ];
+        }
+    }
 }
 
 echo json_encode([
     'ok' => true,
-    'sound_l1' => !empty($configGrid['sound_l1']),
     'enabled' => !empty($configGrid['enabled']),
     'mode' => $mode,
     'price' => $price,
-    'l1' => $l1,
-    'l1_source' => $l1Source,
+    'levels' => $overlay['levels'],
     'triggered' => $triggered,
+    'triggered_levels' => $triggeredLevels,
     'updated_at' => gmdate('Y-m-d H:i:s') . ' UTC',
 ], JSON_THROW_ON_ERROR);
