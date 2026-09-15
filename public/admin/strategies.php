@@ -891,6 +891,7 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                 Боевой режим требует <code>trading_enabled=1</code>; в тестовом ордера эмулируются, все события уходят в Telegram.
                                 <strong>Звук L1:</strong> если цена ушла за первый уровень сетки (ниже L1 при слежении за хаем / выше L1 при лое) —
                                 в открытой вкладке админки мягкий бип каждые 10 с, до 20 раз; когда цена вернулась — останавливается.
+                                <strong>Уровни на H1:</strong> High/Low, L1–L3, TP/SL на графике H1 Dashboard.
                             </p>
                             <div class="d-flex gap-2 align-items-center flex-wrap">
                                 <div class="form-check form-switch mb-0">
@@ -911,6 +912,13 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                         <?= !empty($directionGrid['sound_l1']) ? 'checked' : '' ?>>
                                     <label class="form-check-label small text-info" for="dg_sound_l1"
                                            title="Бип каждые 10 с (до 20 раз), пока цена за L1; работает на любой странице админки">звук L1</label>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch"
+                                           id="dg_chart_h1" name="dg_chart_h1" value="1"
+                                        <?= !empty($directionGrid['chart_h1']) ? 'checked' : '' ?>>
+                                    <label class="form-check-label small text-info" for="dg_chart_h1"
+                                           title="Показывать High/Low, L1–L3, TP/SL на графике H1 Dashboard">уровни на H1</label>
                                 </div>
                                 <button type="submit" name="action" value="reset_direction_grid" class="btn btn-sm btn-outline-warning"
                                         onclick="return confirm('Сбросить стратегию слежения?');">Сбросить</button>

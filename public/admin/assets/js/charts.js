@@ -336,6 +336,65 @@
         let lastCandles = [];
         let maEnabled = false;
         let pcEnabled = false;
+        const dgPriceLines = [];
+
+        const clearDgPriceLines = () => {
+            while (dgPriceLines.length > 0) {
+                const line = dgPriceLines.pop();
+                try {
+                    series.removePriceLine(line);
+                } catch (_error) {
+                    // ignore
+                }
+            }
+        };
+
+        const setDgOverlay = (overlay) => {
+            clearDgPriceLines();
+            if (!overlay || !overlay.show_h1) {
+                return;
+            }
+
+            const addLine = (price, color, title, style) => {
+                if (!Number.isFinite(price)) {
+                    return;
+                }
+                const line = series.createPriceLine({
+                    price,
+                    color,
+                    lineWidth: 2,
+                    lineStyle: style,
+                    axisLabelVisible: true,
+                    title,
+                });
+                dgPriceLines.push(line);
+            };
+
+            if (overlay.anchor != null) {
+                addLine(
+                    Number(overlay.anchor),
+                    '#38bdf8',
+                    overlay.mode === 'low' ? 'Low' : 'High',
+                    LightweightCharts.LineStyle.Dashed
+                );
+            }
+            const levelColors = ['#fbbf24', '#f59e0b', '#d97706'];
+            (overlay.levels || []).forEach((lvl) => {
+                const idx = Number(lvl.index ?? 0);
+                addLine(
+                    Number(lvl.price),
+                    levelColors[idx] || '#fbbf24',
+                    String(lvl.title || `L${idx + 1}`),
+                    LightweightCharts.LineStyle.Solid
+                );
+            });
+            if (overlay.tp != null) {
+                addLine(Number(overlay.tp), '#22c55e', 'TP', LightweightCharts.LineStyle.Dotted);
+            }
+            if (overlay.sl != null) {
+                addLine(Number(overlay.sl), '#ef4444', 'SL', LightweightCharts.LineStyle.Dotted);
+            }
+        };
 
         const applyMaData = () => {
             MA_PERIODS.forEach((item) => {
@@ -399,6 +458,7 @@
             container,
             setMaEnabled,
             setPcEnabled,
+            setDgOverlay,
             setLastCandles(candles) {
                 lastCandles = Array.isArray(candles) ? candles : [];
                 applyMaData();
@@ -915,6 +975,11 @@
                         maximumFractionDigits: 2,
                     });
                 }
+            }
+
+            const h1 = charts.get('H1');
+            if (h1 && typeof h1.setDgOverlay === 'function') {
+                h1.setDgOverlay(payload.direction_grid || null);
             }
         }
 

@@ -19,6 +19,7 @@ final class DirectionGridConfig
      *   enabled: bool,
      *   test_mode: bool,
      *   sound_l1: bool,
+     *   chart_h1: bool,
      *   mode: 'high'|'low',
      *   period_minutes: int,
      *   profit: float|int,
@@ -33,6 +34,7 @@ final class DirectionGridConfig
             'enabled' => false,
             'test_mode' => true,
             'sound_l1' => false,
+            'chart_h1' => false,
             'mode' => 'high',
             'period_minutes' => 60,
             'profit' => 300,
@@ -113,6 +115,7 @@ final class DirectionGridConfig
      *   enabled: bool,
      *   test_mode: bool,
      *   sound_l1: bool,
+     *   chart_h1: bool,
      *   mode: 'high'|'low',
      *   period_minutes: int,
      *   profit: float|int,
@@ -160,6 +163,7 @@ final class DirectionGridConfig
             'enabled' => self::toBool($raw['enabled'] ?? false),
             'test_mode' => self::toBool($raw['test_mode'] ?? false),
             'sound_l1' => self::toBool($raw['sound_l1'] ?? false),
+            'chart_h1' => self::toBool($raw['chart_h1'] ?? false),
             'mode' => $mode,
             'period_minutes' => $period,
             'profit' => isset($raw['profit']) && is_numeric($raw['profit']) ? max(0.01, 0 + $raw['profit']) : $defaults['profit'],
@@ -175,6 +179,7 @@ final class DirectionGridConfig
      *   enabled: bool,
      *   test_mode: bool,
      *   sound_l1: bool,
+     *   chart_h1: bool,
      *   mode: 'high'|'low',
      *   period_minutes: int,
      *   profit: float|int,
@@ -199,6 +204,7 @@ final class DirectionGridConfig
             'enabled' => isset($post['dg_enabled']),
             'test_mode' => isset($post['dg_test_mode']),
             'sound_l1' => isset($post['dg_sound_l1']),
+            'chart_h1' => isset($post['dg_chart_h1']),
             'mode' => $post['dg_mode'] ?? 'high',
             'period_minutes' => $post['dg_period_minutes'] ?? 60,
             'profit' => $post['dg_profit'] ?? 300,
@@ -206,6 +212,86 @@ final class DirectionGridConfig
             'after_tp' => $post['dg_after_tp'] ?? 'rebuild',
             'levels' => $levels,
         ]);
+    }
+
+    /**
+     * Уровни для отрисовки на графике (live state или превью от экстремума).
+     *
+     * @param array<string, mixed> $config
+     * @param array<string, mixed> $state
+     * @param array{low: float, high: float}|null $extremum
+     * @return array{
+     *   show_h1: bool,
+     *   mode: string,
+     *   anchor: float|null,
+     *   levels: list<array{index: int, title: string, price: float}>,
+     *   tp: float|null,
+     *   sl: float|null
+     * }
+     */
+    public static function chartOverlay(array $config, array $state, ?array $extremum): array
+    {
+        $mode = (string) ($config['mode'] ?? 'high');
+        if ($mode !== 'low') {
+            $mode = 'high';
+        }
+
+        $anchor = null;
+        if (isset($state['anchor']) && is_numeric($state['anchor'])) {
+            $anchor = (float) $state['anchor'];
+        } elseif ($extremum !== null) {
+            $anchor = $mode === 'low' ? (float) $extremum['low'] : (float) $extremum['high'];
+        }
+
+        $levels = [];
+        $stateLevels = is_array($state['levels'] ?? null) ? $state['levels'] : [];
+        $byIndex = [];
+        foreach ($stateLevels as $row) {
+            if (!is_array($row) || !isset($row['index']) || !is_numeric($row['price'] ?? null)) {
+                continue;
+            }
+            $byIndex[(int) $row['index']] = (float) $row['price'];
+        }
+
+        for ($i = 0; $i < 3; $i++) {
+            $price = $byIndex[$i] ?? null;
+            if ($price === null && $anchor !== null) {
+                $offset = (float) ($config['levels'][$i]['offset'] ?? 0);
+                $price = $mode === 'low' ? $anchor + $offset : $anchor - $offset;
+            }
+            if ($price === null) {
+                continue;
+            }
+            $levels[] = [
+                'index' => $i,
+                'title' => 'L' . ($i + 1),
+                'price' => $price,
+            ];
+        }
+
+        $tp = isset($state['tp']) && is_numeric($state['tp']) ? (float) $state['tp'] : null;
+        $sl = isset($state['sl']) && is_numeric($state['sl']) ? (float) $state['sl'] : null;
+        if ($anchor !== null) {
+            if ($tp === null) {
+                $tp = $mode === 'low'
+                    ? $anchor - (float) $config['profit']
+                    : $anchor + (float) $config['profit'];
+            }
+            if ($sl === null) {
+                $sl = $mode === 'low'
+                    ? $anchor + (float) $config['stop']
+                    : $anchor - (float) $config['stop'];
+            }
+        }
+
+        return [
+            'show_h1' => !empty($config['chart_h1']),
+            'mode' => $mode,
+            'anchor' => $anchor,
+            'levels' => $levels,
+            'tp' => $tp,
+            'sl' => $sl,
+        ];
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Database\SettingsRepository;
 use App\Helpers\Intervals;
 use App\Strategy\CandleAnalyzer;
 use App\Strategy\CandleRepository;
+use App\Strategy\DirectionGridConfig;
 use App\Strategy\SignalGridConfig;
 use App\Strategy\SignalRepository;
 
@@ -42,6 +43,30 @@ if (is_string($rawGrid) && $rawGrid !== '') {
     }
 }
 $signalGrid = SignalGridConfig::normalize($decodedGrid);
+
+$rawDg = $settings->get(DirectionGridConfig::SETTING_KEY);
+$decodedDg = null;
+if (is_string($rawDg) && $rawDg !== '') {
+    try {
+        $decodedDg = json_decode($rawDg, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        $decodedDg = null;
+    }
+}
+$directionGrid = DirectionGridConfig::normalize($decodedDg);
+
+$rawDgState = $settings->get(DirectionGridConfig::STATE_KEY);
+$decodedDgState = null;
+if (is_string($rawDgState) && $rawDgState !== '') {
+    try {
+        $decodedDgState = json_decode($rawDgState, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        $decodedDgState = null;
+    }
+}
+$directionState = DirectionGridConfig::normalizeState($decodedDgState);
+$dgExtremum = $repository->extremumLastMinutes($symbol, '1', (int) $directionGrid['period_minutes']);
+$directionOverlay = DirectionGridConfig::chartOverlay($directionGrid, $directionState, $dgExtremum);
 
 $buildSeries = static function (array $rows, string $intervalCode): array {
     $candles = [];
@@ -81,6 +106,7 @@ $meta = [
     'quotes_network' => 'mainnet',
     'source' => 'https://www.bybit.com/ru-RU/trade/usdt/BTCUSDT',
     'limit' => $limit === 0 ? 'all' : $limit,
+    'direction_grid' => $directionOverlay,
 ];
 
 if ($requested === 'all') {
