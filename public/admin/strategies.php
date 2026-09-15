@@ -889,6 +889,8 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                 High → Buy-лимиты ниже хая; Low → Sell-лимиты выше лоя. Пока нет fill — сетка двигается за экстремумом раз в минуту.
                                 После fill — ждём TP/SL, незаполненные не двигаем.
                                 Боевой режим требует <code>trading_enabled=1</code>; в тестовом ордера эмулируются, все события уходят в Telegram.
+                                <strong>Звук L1:</strong> если цена ушла за первый уровень сетки (ниже L1 при слежении за хаем / выше L1 при лое) —
+                                в открытой вкладке админки мягкий бип каждые 10 с, до 20 раз; когда цена вернулась — останавливается.
                             </p>
                             <div class="d-flex gap-2 align-items-center flex-wrap">
                                 <div class="form-check form-switch mb-0">
@@ -902,6 +904,13 @@ $renderLevelRows = static function (array $rows, string $side): void {
                                            id="dg_test_mode" name="dg_test_mode" value="1"
                                         <?= !empty($directionGrid['test_mode']) ? 'checked' : '' ?>>
                                     <label class="form-check-label small text-warning" for="dg_test_mode">тестовый режим</label>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch"
+                                           id="dg_sound_l1" name="dg_sound_l1" value="1"
+                                        <?= !empty($directionGrid['sound_l1']) ? 'checked' : '' ?>>
+                                    <label class="form-check-label small text-info" for="dg_sound_l1"
+                                           title="Бип каждые 10 с (до 20 раз), пока цена за L1; работает на любой странице админки">звук L1</label>
                                 </div>
                                 <button type="submit" name="action" value="reset_direction_grid" class="btn btn-sm btn-outline-warning"
                                         onclick="return confirm('Сбросить стратегию слежения?');">Сбросить</button>
@@ -1365,5 +1374,6 @@ $renderLevelRows = static function (array $rows, string $side): void {
         });
     })();
 </script>
+<?php require dirname(__DIR__, 2) . '/templates/admin_grid_l1_alert.php'; ?>
 </body>
 </html>

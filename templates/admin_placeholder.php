@@ -36,5 +36,6 @@ $current = basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
     <h1 class="h3"><?= $pageTitle ?></h1>
     <p class="text-secondary">Раздел в разработке.</p>
 </main>
+<?php require __DIR__ . '/admin_grid_l1_alert.php'; ?>
 </body>
 </html>

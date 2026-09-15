@@ -18,6 +18,7 @@ final class DirectionGridConfig
      * @return array{
      *   enabled: bool,
      *   test_mode: bool,
+     *   sound_l1: bool,
      *   mode: 'high'|'low',
      *   period_minutes: int,
      *   profit: float|int,
@@ -31,6 +32,7 @@ final class DirectionGridConfig
         return [
             'enabled' => false,
             'test_mode' => true,
+            'sound_l1' => false,
             'mode' => 'high',
             'period_minutes' => 60,
             'profit' => 300,
@@ -110,6 +112,7 @@ final class DirectionGridConfig
      * @return array{
      *   enabled: bool,
      *   test_mode: bool,
+     *   sound_l1: bool,
      *   mode: 'high'|'low',
      *   period_minutes: int,
      *   profit: float|int,
@@ -156,6 +159,7 @@ final class DirectionGridConfig
         return [
             'enabled' => self::toBool($raw['enabled'] ?? false),
             'test_mode' => self::toBool($raw['test_mode'] ?? false),
+            'sound_l1' => self::toBool($raw['sound_l1'] ?? false),
             'mode' => $mode,
             'period_minutes' => $period,
             'profit' => isset($raw['profit']) && is_numeric($raw['profit']) ? max(0.01, 0 + $raw['profit']) : $defaults['profit'],
@@ -170,6 +174,7 @@ final class DirectionGridConfig
      * @return array{
      *   enabled: bool,
      *   test_mode: bool,
+     *   sound_l1: bool,
      *   mode: 'high'|'low',
      *   period_minutes: int,
      *   profit: float|int,
@@ -193,6 +198,7 @@ final class DirectionGridConfig
         return self::normalize([
             'enabled' => isset($post['dg_enabled']),
             'test_mode' => isset($post['dg_test_mode']),
+            'sound_l1' => isset($post['dg_sound_l1']),
             'mode' => $post['dg_mode'] ?? 'high',
             'period_minutes' => $post['dg_period_minutes'] ?? 60,
             'profit' => $post['dg_profit'] ?? 300,

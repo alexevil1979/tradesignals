@@ -199,5 +199,6 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
         });
     });
 </script>
+<?php require dirname(__DIR__, 2) . '/templates/admin_grid_l1_alert.php'; ?>
 </body>
 </html>
