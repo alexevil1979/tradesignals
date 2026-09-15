@@ -98,9 +98,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stateChanged = true;
             }
             // Смена параметров сетки → перестановка на следующем тике (сохраняем link_id для отмены).
+            // Сразу пересчитываем цены уровней в state от новых отступов — H1/звук не ждут cron.
             if (DirectionGridConfig::signature($prevDirection) !== DirectionGridConfig::signature($directionGrid)) {
                 $state['force_rebuild'] = true;
                 $stateChanged = true;
+                $mode = (string) $directionGrid['mode'];
+                $anchor = isset($state['anchor']) && is_numeric($state['anchor'])
+                    ? (float) $state['anchor']
+                    : null;
+                if ($anchor === null) {
+                    try {
+                        $ext = (new CandleRepository($pdo))->extremumLastMinutes(
+                            (string) $config['bybit']['symbol'],
+                            '1',
+                            (int) $directionGrid['period_minutes']
+                        );
+                        if ($ext !== null) {
+                            $anchor = $mode === 'low' ? (float) $ext['low'] : (float) $ext['high'];
+                            $state['anchor'] = $anchor;
+                        }
+                    } catch (Throwable) {
+                        $anchor = null;
+                    }
+                }
+                if ($anchor !== null) {
+                    $newLevels = [];
+                    foreach ($state['levels'] as $row) {
+                        if (!is_array($row)) {
+                            continue;
+                        }
+                        $idx1 = (int) ($row['index'] ?? 0);
+                        $idx0 = ($idx1 >= 1 && $idx1 <= 3) ? $idx1 - 1 : max(0, $idx1);
+                        $offset = (float) ($directionGrid['levels'][$idx0]['offset'] ?? 0);
+                        $row['price'] = $mode === 'low' ? $anchor + $offset : $anchor - $offset;
+                        $newLevels[] = $row;
+                    }
+                    // Если сетки ещё не было — создаём превью-уровни без ордеров (до rebuild).
+                    if ($newLevels === []) {
+                        for ($i = 0; $i < 3; $i++) {
+                            $offset = (float) ($directionGrid['levels'][$i]['offset'] ?? 0);
+                            $newLevels[] = [
+                                'index' => $i + 1,
+                                'link_id' => '',
+                                'status' => 'New',
+                                'price' => $mode === 'low' ? $anchor + $offset : $anchor - $offset,
+                            ];
+                        }
+                    }
+                    $state['levels'] = $newLevels;
+                    if (empty($state['wait_close']) && empty($state['filled_any'])) {
+                        $state['tp'] = $mode === 'low'
+                            ? $anchor - (float) $directionGrid['profit']
+                            : $anchor + (float) $directionGrid['profit'];
+                        $state['sl'] = $mode === 'low'
+                            ? $anchor + (float) $directionGrid['stop']
+                            : $anchor - (float) $directionGrid['stop'];
+                    }
+                }
             }
             if ($stateChanged) {
                 $settings->set(DirectionGridConfig::STATE_KEY, json_encode($state, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));

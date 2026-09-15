@@ -236,7 +236,9 @@ final class DirectionGridConfig
     }
 
     /**
-     * Уровни для отрисовки на графике (live state или превью от экстремума).
+     * Уровни для H1 / звука: всегда от текущих отступов в настройках.
+     * Якорём берём свежий экстремум (как превью в Стратегиях), иначе anchor из state.
+     * TP/SL из state только пока ждём закрытие позиции; иначе — из текущих profit/stop.
      *
      * @param array<string, mixed> $config
      * @param array<string, mixed> $state
@@ -258,45 +260,31 @@ final class DirectionGridConfig
         }
 
         $anchor = null;
-        if (isset($state['anchor']) && is_numeric($state['anchor'])) {
-            $anchor = (float) $state['anchor'];
-        } elseif ($extremum !== null) {
+        if ($extremum !== null) {
             $anchor = $mode === 'low' ? (float) $extremum['low'] : (float) $extremum['high'];
+        } elseif (isset($state['anchor']) && is_numeric($state['anchor'])) {
+            $anchor = (float) $state['anchor'];
         }
 
         $levels = [];
-        $stateLevels = is_array($state['levels'] ?? null) ? $state['levels'] : [];
-        $byIndex = [];
-        foreach ($stateLevels as $row) {
-            if (!is_array($row) || !isset($row['index']) || !is_numeric($row['price'] ?? null)) {
-                continue;
-            }
-            $idx = (int) $row['index'];
-            // В state index 1..3 (L1..L3); в config — 0..2.
-            if ($idx >= 1 && $idx <= 3) {
-                $idx -= 1;
-            }
-            $byIndex[$idx] = (float) $row['price'];
-        }
-
-        for ($i = 0; $i < 3; $i++) {
-            $price = $byIndex[$i] ?? null;
-            if ($price === null && $anchor !== null) {
+        if ($anchor !== null) {
+            for ($i = 0; $i < 3; $i++) {
                 $offset = (float) ($config['levels'][$i]['offset'] ?? 0);
-                $price = $mode === 'low' ? $anchor + $offset : $anchor - $offset;
+                $levels[] = [
+                    'index' => $i,
+                    'title' => 'L' . ($i + 1),
+                    'price' => $mode === 'low' ? $anchor + $offset : $anchor - $offset,
+                ];
             }
-            if ($price === null) {
-                continue;
-            }
-            $levels[] = [
-                'index' => $i,
-                'title' => 'L' . ($i + 1),
-                'price' => $price,
-            ];
         }
 
-        $tp = isset($state['tp']) && is_numeric($state['tp']) ? (float) $state['tp'] : null;
-        $sl = isset($state['sl']) && is_numeric($state['sl']) ? (float) $state['sl'] : null;
+        $waitingClose = !empty($state['wait_close']) || !empty($state['filled_any']);
+        $tp = null;
+        $sl = null;
+        if ($waitingClose) {
+            $tp = isset($state['tp']) && is_numeric($state['tp']) ? (float) $state['tp'] : null;
+            $sl = isset($state['sl']) && is_numeric($state['sl']) ? (float) $state['sl'] : null;
+        }
         if ($anchor !== null) {
             if ($tp === null) {
                 $tp = $mode === 'low'
