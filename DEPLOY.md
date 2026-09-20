@@ -386,6 +386,23 @@ sudo systemctl reload apache2
 
 ```bash
 mysql -u tradesignals -p -h 127.0.0.1 tradesignals < sql/001_signal_idempotency.sql
+mysql -u tradesignals -p -h 127.0.0.1 tradesignals < sql/002_api_tokens.sql
+```
+
+## 7.1 Android-приложение
+
+Клиент в каталоге `android/` управляет ботом по Mobile API (`/api/mobile/*`).
+Расчёты и ордера остаются на сервере.
+
+После `git pull` обязательно примените `sql/002_api_tokens.sql`.
+Сборка APK — через Android Studio (открыть папку `android/`) или см. `android/README.md`.
+
+Проверка API:
+
+```bash
+curl -s -X POST https://td.1tlt.ru/api/mobile/login.php \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"ADMIN","password":"PASS","device_name":"curl"}'
 ```
 
 ## 8. Проверка перед включением торгов
