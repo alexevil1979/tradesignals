@@ -44,7 +44,7 @@ docker compose exec app php cron/process_signals.php
 
 ## Установка
 
-Для production-развёртывания на VPS с доменом, Apache и Let's Encrypt см. [DEPLOY.md](DEPLOY.md).
+Для production-развёртывания на VPS с доменом, Apache и Let's Encrypt см. [DEPLOY.md](DEPLOY.md). Перенос существующего сервера один в один — [MIGRATE_VPS.md](MIGRATE_VPS.md).
 
 1. Скопируйте `config/config.php` и задайте переменные окружения `DB_*`, `BYBIT_*`, `TELEGRAM_*`. Не добавляйте реальные секреты в Git.
 2. Установите автозагрузчик:
