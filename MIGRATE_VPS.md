@@ -263,7 +263,7 @@ mysql -u root -p'qweasd333123' tradesignals < /root/migrate-.../tradesignals.sql
 
 mysql -u root -p'qweasd333123' tradesignals -e "
 SHOW TABLES;
-SELECT COUNT(*) AS admins FROM admins;
+SELECT COUNT(*) AS users FROM users;
 SELECT COUNT(*) AS candles FROM candles;
 SELECT COUNT(*) AS signals FROM signals;"
 ```
@@ -303,14 +303,16 @@ rsync -aHAX --info=progress2 \
 
 ```bash
 cp /root/migrate-.../local.php /ssd/www/tradesignals/config/local.php
+chown root:www-data /ssd/www/tradesignals/config/local.php
 chmod 640 /ssd/www/tradesignals/config/local.php
-chown "$USER":www-data /ssd/www/tradesignals/config/local.php
 
 mkdir -p storage/logs storage/locks
 touch storage/logs/.gitkeep storage/locks/.gitkeep
+chown -R www-data:www-data /ssd/www/tradesignals/storage
 
 find /ssd/www/tradesignals -type d -exec chmod 755 {} \;
 find /ssd/www/tradesignals -type f -exec chmod 644 {} \;
+chown root:www-data /ssd/www/tradesignals/config/local.php
 chmod 640 /ssd/www/tradesignals/config/local.php
 ```
 
@@ -363,7 +365,8 @@ sudo systemctl reload php8.2-fpm
 echo '<?php echo PHP_VERSION, " ", __FILE__;' > /ssd/www/tradesignals/public/phpver.php
 chmod 644 /ssd/www/tradesignals/public/phpver.php
 
-curl -sk -H 'Host: td.1tlt.ru' https://127.0.0.1/phpver.php
+# Не curl на 127.0.0.1 с Host: — будет 421 SNI. Используйте --resolve:
+curl -sk --resolve td.1tlt.ru:443:127.0.0.1 https://td.1tlt.ru/phpver.php
 # 8.2.x и путь .../public/phpver.php
 
 rm /ssd/www/tradesignals/public/phpver.php
@@ -482,7 +485,9 @@ curl -I https://td.1tlt.ru/admin/
 | Apache SSL error | нет файлов в `/etc/letsencrypt/live/td.1tlt.ru/` | проверить пути / скопировать LE |
 | 503 PHP | php8.2-fpm не запущен / другой сокет | `systemctl start php8.2-fpm`, сверить `listen` в pool |
 | «PHP >= 8.2» в браузере | старый handler `:9072` / другой PHP | конфиг из `deploy/apache/` (сокет 8.2) |
-| Access denied MySQL | неверный пароль root/app | `root` / `qweasd333123`; app — как в `local.php` |
+| Access denied MySQL / 500 на /admin/ | `local.php` не читается www-data или неверный пароль | `chown root:www-data` + `chmod 640` на `config/local.php`; пароль app как в файле |
+| `421 Misdirected Request` у curl | curl на IP без SNI | `curl --resolve td.1tlt.ru:443:127.0.0.1 https://td.1tlt.ru/...` |
+| ERROR `admins` doesn't exist | устаревшая проверка | таблица называется `users`, не `admins` |
 | Пустая админка | не полный дамп | restore через `mysql -u root -p'qweasd333123'` |
 | Дубли Telegram | cron на двух VPS | cron только на одном |
 | В crontab остался `/usr/local/php82` | скопировали старый crontab | заменить на `/usr/bin/php8.2` |
