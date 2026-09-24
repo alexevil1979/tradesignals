@@ -122,6 +122,22 @@ PHP_BIN=/usr/local/php82/bin/php
 
 ## 4. Apache
 
+Готовые vhost для production (HTTP redirect + HTTPS с путями `/etc/letsencrypt/live/td.1tlt.ru/`):
+
+- [`deploy/apache/td.1tlt.ru.conf`](deploy/apache/td.1tlt.ru.conf)
+- [`deploy/apache/td.1tlt.ru-le-ssl.conf`](deploy/apache/td.1tlt.ru-le-ssl.conf)
+
+Если сертификаты уже лежат в стандартной папке Let's Encrypt, достаточно скопировать эти файлы и включить сайты (без `certbot --apache`):
+
+```bash
+cd /ssd/www/tradesignals
+sudo a2enmod rewrite headers ssl proxy proxy_fcgi
+sudo cp deploy/apache/td.1tlt.ru.conf deploy/apache/td.1tlt.ru-le-ssl.conf /etc/apache2/sites-available/
+sudo a2ensite td.1tlt.ru.conf td.1tlt.ru-le-ssl.conf
+sudo apachectl configtest
+sudo systemctl reload apache2
+```
+
 Сайт обязан обслуживаться тем же PHP 8.2, что и CLI (`/usr/local/php82`). Если Apache использует старый PHP, в браузере появится:
 
 `Composer detected issues in your platform: Your Composer dependencies require a PHP version ">= 8.2.0".`
@@ -318,14 +334,26 @@ curl -k https://td.1tlt.ru/phpver.php
 ```
 ## 5. SSL Let's Encrypt
 
+Если сертификаты **уже** есть в `/etc/letsencrypt/live/td.1tlt.ru/` — шаг выпуска пропускайте: Apache-конфиги из `deploy/apache/` уже ссылаются на `fullchain.pem` и `privkey.pem`.
+
+Если сертификатов ещё нет и A-запись домена указывает на этот VPS:
+
 ```bash
 sudo certbot --apache -d td.1tlt.ru --redirect --agree-tos -m YOUR_EMAIL@example.com
 sudo systemctl status certbot.timer
 ```
 
+Либо только выпуск файлов (конфиги уже из репо):
+
+```bash
+sudo certbot certonly --webroot -w /var/www/html -d td.1tlt.ru
+sudo apachectl configtest && sudo systemctl reload apache2
+```
+
 Проверьте:
 
 ```bash
+ls -la /etc/letsencrypt/live/td.1tlt.ru/
 curl -I https://td.1tlt.ru/
 curl -I https://td.1tlt.ru/admin/
 ```
