@@ -2,6 +2,15 @@
 
 Полный перенос production `td.1tlt.ru` со старого VPS на новый **без потери данных и настроек**: тот же код, та же БД, те же секреты, тот же домен.
 
+## Серверы
+
+| Роль | Host | IP | SSH |
+|------|------|-----|-----|
+| **Старый** | `exnb` | `192.168.1.152` | `root@192.168.1.152` или `root@exnb` |
+| **Новый** | — | `192.168.1.147` | `root@192.168.1.147` |
+
+Команды ниже используют эти адреса напрямую.
+
 **Отличия нового VPS от старого:**
 - PHP — **системный 8.2 из apt** (`/usr/bin/php8.2`, FPM-сокет `/run/php/php8.2-fpm.sock`), **не** сборка из исходников `/usr/local/php82` и **не** порт `9072`.
 - MySQL root: пользователь `root`, пароль `qweasd333123` (все команды ниже с этим паролем).
@@ -52,20 +61,20 @@ mysql -u root -p'qweasd333123' -e "SELECT VERSION();"
 ## Порядок cutover
 
 ```
-1. Старый: инвентаризация → стоп cron → дамп + local.php
-2. Новый:  apt PHP 8.2 + php8.2-fpm, MySQL, каталоги
-3. Новый:  код + local.php + restore БД (mysql root)
-4. Новый:  /etc/letsencrypt/live/td.1tlt.ru/ → Apache из deploy/apache/
-5. Новый:  проверка по IP, Bybit IP, Telegram proxy
-6. DNS → HTTPS → cron только на новом → стоп старого
+1. exnb (192.168.1.152): инвентаризация → стоп cron → дамп + local.php
+2. 192.168.1.147: apt PHP 8.2 + php8.2-fpm, MySQL, каталоги
+3. 192.168.1.147: код + local.php + restore БД (mysql root)
+4. 192.168.1.147: /etc/letsencrypt/live/td.1tlt.ru/ → Apache из deploy/apache/
+5. 192.168.1.147: проверка по IP, Bybit IP, Telegram proxy
+6. DNS → HTTPS → cron только на 192.168.1.147 → стоп exnb
 ```
 
 ---
 
 ## 0. Подготовка
 
-1. Новый VPS: Debian/Ubuntu, порты 80/443, место под дамп + код.
-2. Root/SSH на оба сервера.
+1. Новый VPS `192.168.1.147`: Debian/Ubuntu, порты 80/443, место под дамп + код.
+2. Root/SSH на оба: `exnb` (`192.168.1.152`) и `192.168.1.147`.
 3. На новом уже есть (или ставите в шаге 4):
    - системный PHP 8.2 + php8.2-fpm;
    - MySQL с `root` / `qweasd333123`;
@@ -83,11 +92,11 @@ ls -la /run/php/php8.2-fpm.sock
 
 ---
 
-## 1. Инвентаризация на старом VPS
+## 1. Инвентаризация на старом VPS (`exnb` / `192.168.1.152`)
 
 ```bash
 hostname -I
-# на старом PHP часто custom — зафиксируйте путь из crontab
+# ожидается 192.168.1.152
 crontab -l
 git -C /ssd/www/tradesignals rev-parse HEAD
 git -C /ssd/www/tradesignals status -sb
@@ -109,7 +118,7 @@ GROUP BY table_schema;"
 
 ---
 
-## 2. Заморозка записи на старом VPS
+## 2. Заморозка записи на старом VPS (`exnb` / `192.168.1.152`)
 
 ```bash
 crontab -e
@@ -123,7 +132,7 @@ ls /tmp/tradesignals-*.lock 2>/dev/null || echo "locks free"
 
 ---
 
-## 3. Дамп базы и бэкап секретов (старый VPS)
+## 3. Дамп базы и бэкап секретов (`exnb` / `192.168.1.152`)
 
 ```bash
 sudo mkdir -p /ssd/backups
@@ -147,10 +156,14 @@ sha256sum "$BACKUP_DIR/tradesignals.sql" > "$BACKUP_DIR/tradesignals.sql.sha256"
 ```
 
 ```bash
-scp -r root@OLD_IP:/ssd/backups/migrate-YYYY-MM-DD-HHMMSS root@NEW_IP:/root/
+# с любой машины в LAN (или с нового сервера)
+scp -r root@192.168.1.152:/ssd/backups/migrate-YYYY-MM-DD-HHMMSS root@192.168.1.147:/root/
+
+# либо сначала на новый, затем развернуть там:
+# scp -r root@exnb:/ssd/backups/migrate-YYYY-MM-DD-HHMMSS /root/
 ```
 
-На новом:
+На новом (`192.168.1.147`):
 
 ```bash
 cd /root/migrate-...
@@ -159,7 +172,7 @@ sha256sum -c tradesignals.sql.sha256
 
 ---
 
-## 4. Базовая подготовка нового VPS
+## 4. Базовая подготовка нового VPS (`192.168.1.147`)
 
 ```bash
 sudo apt update
@@ -280,8 +293,10 @@ mkdir -p "$COMPOSER_HOME"
 ### Или rsync со старого
 
 ```bash
+# на новом 192.168.1.147
 rsync -aHAX --info=progress2 \
-  root@OLD_IP:/ssd/www/tradesignals/ /ssd/www/tradesignals/
+  root@192.168.1.152:/ssd/www/tradesignals/ /ssd/www/tradesignals/
+# или: root@exnb:/ssd/www/tradesignals/
 ```
 
 ### Секреты и права
@@ -399,9 +414,9 @@ ss -lntp | grep 1080
 
 ## 10. Bybit IP whitelist
 
-1. `curl -4 ifconfig.me`
-2. Добавьте IP нового VPS в whitelist ключа
-3. Затем торговые вызовы на новом сервере
+1. На новом: `curl -4 ifconfig.me` (публичный исходящий IP; LAN `192.168.1.147` Bybit не увидит, если выход через NAT).
+2. Добавьте **публичный** IP нового сервера в whitelist ключа (при необходимости оставьте старый до cutover).
+3. Затем торговые вызовы на `192.168.1.147`.
 
 ---
 
@@ -409,10 +424,19 @@ ss -lntp | grep 1080
 
 ### 11.1. DNS
 
-A-запись `td.1tlt.ru` → IP нового VPS (TTL заранее 300 с).
+A-запись `td.1tlt.ru` → адрес, по которому домен доступен с интернета для нового сервера.
+
+- Внутренняя проверка / LAN: сайт уже на `192.168.1.147`.
+- Если A-запись указывала на публичный IP `exnb` (`192.168.1.152`) — смените её на публичный IP хоста `192.168.1.147` (не путайте с LAN, если за NAT).
+
+TTL заранее лучше 300 с.
 
 ```bash
 dig +short td.1tlt.ru
+# после cutover должен резолвиться в публичный IP нового сервера
+
+# локальная проверка нового без DNS:
+curl -sk -H 'Host: td.1tlt.ru' https://192.168.1.147/
 ```
 
 ### 11.2. HTTPS
@@ -424,8 +448,8 @@ curl -I https://td.1tlt.ru/admin/
 
 ### 11.3. Cron только на новом
 
-На старом — crontab бота закомментирован, `a2dissite` при необходимости.  
-На новом — строки из шага 8 активны.
+На старом (`exnb` / `192.168.1.152`) — crontab бота закомментирован, `a2dissite` при необходимости.  
+На новом (`192.168.1.147`) — строки из шага 8 активны.
 
 ### 11.4. Чеклист
 
@@ -439,15 +463,15 @@ curl -I https://td.1tlt.ru/admin/
 | `bin/test_telegram.php` | сообщение уходит |
 | Mobile API login | токен |
 
-Старый VPS — cold backup 24–48 ч.
+Старый `exnb` (`192.168.1.152`) — cold backup 24–48 ч.
 
 ---
 
 ## 12. Откат
 
-1. DNS обратно на старый IP.  
+1. DNS обратно на публичный IP старого (`exnb` / `192.168.1.152`).  
 2. На старом — crontab + Apache.  
-3. На новом — стоп cron и сайт.
+3. На новом (`192.168.1.147`) — стоп cron и сайт.
 
 ---
 
@@ -467,11 +491,11 @@ curl -I https://td.1tlt.ru/admin/
 
 ## Краткая шпаргалка
 
-1. Стоп cron на старом → дамп `mysqldump -u root -p'qweasd333123'` + `local.php`.  
-2. Новый: `apt install php8.2 php8.2-fpm ...`, MySQL root `qweasd333123`.  
-3. Restore дампа, код + `local.php`, `composer` через `php8.2`.  
+1. На `exnb` (`192.168.1.152`): стоп cron → дамп `mysqldump -u root -p'qweasd333123'` + `local.php`.  
+2. На `192.168.1.147`: `apt install php8.2 php8.2-fpm ...`, MySQL root `qweasd333123`.  
+3. `scp`/`rsync` с `192.168.1.152` → `192.168.1.147`, restore дампа, код + `local.php`, `composer` через `php8.2`.  
 4. Серты в `/etc/letsencrypt/live/td.1tlt.ru/` → `deploy/apache/*.conf` → reload.  
-5. Cron с `/usr/bin/php8.2`.  
-6. DNS → стоп старого.
+5. Cron с `/usr/bin/php8.2` на `192.168.1.147`.  
+6. DNS → стоп cron/сайта на `exnb`.
 
 Дальнейшие обновления кода — [DEPLOY.md](DEPLOY.md) (на новом VPS везде подставляйте `/usr/bin/php8.2` вместо `/usr/local/php82/bin/php`).
