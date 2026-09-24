@@ -4,6 +4,8 @@
 
 Перенос уже работающего production на другой VPS без потери данных: [MIGRATE_VPS.md](MIGRATE_VPS.md).
 
+**Новый VPS (миграция):** системный PHP 8.2 из apt (`/usr/bin/php8.2`, `php8.2-fpm`, сокет `/run/php/php8.2-fpm.sock`) и MySQL root `root` / `qweasd333123` — см. [MIGRATE_VPS.md](MIGRATE_VPS.md) и конфиги в `deploy/apache/`. Ниже в разделах про `/usr/local/php82` и порт `9072` — наследие старого сервера; на новом их не используйте.
+
 > До включения торгов оставьте Bybit Testnet и параметр `trading_enabled=0`. У API-ключа Bybit не должно быть разрешения на вывод средств.
 
 ## 1. DNS и системные пакеты
@@ -55,7 +57,7 @@ open_basedir=/ssd/www/tradesignals:/usr/local/bin:/tmp:/usr/local/php82:/dev/ura
 Замените сильный пароль и сохраните его для `config/local.php`:
 
 ```bash
-mysql -u root -p <<'SQL'
+mysql -u root -p'qweasd333123' <<'SQL'
 CREATE DATABASE tradesignals CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'tradesignals'@'127.0.0.1' IDENTIFIED BY 'qweasd333123';
 CREATE USER 'tradesignals'@'localhost' IDENTIFIED BY 'qweasd333123';
@@ -127,18 +129,19 @@ PHP_BIN=/usr/local/php82/bin/php
 - [`deploy/apache/td.1tlt.ru.conf`](deploy/apache/td.1tlt.ru.conf)
 - [`deploy/apache/td.1tlt.ru-le-ssl.conf`](deploy/apache/td.1tlt.ru-le-ssl.conf)
 
-Если сертификаты уже лежат в стандартной папке Let's Encrypt, достаточно скопировать эти файлы и включить сайты (без `certbot --apache`):
+Если сертификаты уже лежат в стандартной папке Let's Encrypt, достаточно скопировать эти файлы и включить сайты (без `certbot --apache`). SSL-vhost из репо рассчитан на **системный** `php8.2-fpm` (сокет), не на `:9072`:
 
 ```bash
 cd /ssd/www/tradesignals
 sudo a2enmod rewrite headers ssl proxy proxy_fcgi
+sudo systemctl enable --now php8.2-fpm
 sudo cp deploy/apache/td.1tlt.ru.conf deploy/apache/td.1tlt.ru-le-ssl.conf /etc/apache2/sites-available/
 sudo a2ensite td.1tlt.ru.conf td.1tlt.ru-le-ssl.conf
 sudo apachectl configtest
 sudo systemctl reload apache2
 ```
 
-Сайт обязан обслуживаться тем же PHP 8.2, что и CLI (`/usr/local/php82`). Если Apache использует старый PHP, в браузере появится:
+На старом VPS сайт обслуживался custom PHP (`/usr/local/php82`, порт `9072`). На новом — apt `php8.2`. Если Apache бьёт не в тот FPM, в браузере появится:
 
 `Composer detected issues in your platform: Your Composer dependencies require a PHP version ">= 8.2.0".`
 
