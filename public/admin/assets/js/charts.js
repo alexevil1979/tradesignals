@@ -7,6 +7,8 @@
     const PC_STORAGE_KEY = 'tradesignals.chartPc.v2';
     const SEQ_STORAGE_KEY = 'tradesignals.chartSeq.v1';
     const SEQ_MIN_BARS = 4;
+    const GROW_STORAGE_KEY = 'tradesignals.chartGrow.v1';
+    const GROW_BARS = 3;
     const TF_STORAGE_KEY = 'tradesignals.chartTf.v1';
     const TF_COOKIE = 'tradesignals_chart_tf';
     const MA_PERIODS = [
@@ -177,9 +179,79 @@
         return marked;
     }
 
-    function paintSequenceCandles(candles, enabled) {
+    function readGrowEnabled(timeframe) {
+        if (!timeframe) {
+            return false;
+        }
+        const map = readIndicatorMap(GROW_STORAGE_KEY);
+        return map[timeframe] === '1';
+    }
+
+    function writeGrowEnabled(timeframe, enabled) {
+        if (!timeframe) {
+            return;
+        }
+        const map = readIndicatorMap(GROW_STORAGE_KEY);
+        map[timeframe] = enabled ? '1' : '0';
+        writeIndicatorMap(GROW_STORAGE_KEY, map);
+    }
+
+    function candleShape(candle) {
+        const open = Number(candle.open);
+        const close = Number(candle.close);
+        if (!Number.isFinite(open) || !Number.isFinite(close)) {
+            return null;
+        }
+        const body = Math.abs(close - open);
+        if (body < 1e-8) {
+            return null;
+        }
+        return {
+            dir: close > open ? 'up' : 'down',
+            body,
+        };
+    }
+
+    /**
+     * Ровно 3 свечи подряд в одну сторону, тело каждой строго больше предыдущей.
+     * Пустое тело в тройку не входит. Более длинная серия подсвечивается
+     * пересекающимися тройками.
+     */
+    function growingTripleIndices(candles) {
+        const marked = new Set();
+        if (!Array.isArray(candles) || candles.length < GROW_BARS) {
+            return marked;
+        }
+        for (let i = 0; i <= candles.length - GROW_BARS; i += 1) {
+            const shapes = [];
+            let valid = true;
+            for (let step = 0; step < GROW_BARS; step += 1) {
+                const shape = candleShape(candles[i + step]);
+                if (!shape || (shapes.length > 0 && shape.dir !== shapes[0].dir)) {
+                    valid = false;
+                    break;
+                }
+                if (shapes.length > 0 && !(shape.body > shapes[shapes.length - 1].body)) {
+                    valid = false;
+                    break;
+                }
+                shapes.push(shape);
+            }
+            if (!valid) {
+                continue;
+            }
+            for (let step = 0; step < GROW_BARS; step += 1) {
+                marked.add(i + step);
+            }
+        }
+        return marked;
+    }
+
+    function paintChartCandles(candles, seqOn, growOn) {
         const list = Array.isArray(candles) ? candles : [];
-        const marked = enabled ? new Set(sequenceRunIndices(list)) : new Set();
+        const seq = seqOn ? new Set(sequenceRunIndices(list)) : new Set();
+        const grow = growOn ? growingTripleIndices(list) : new Set();
+        const borders = !!seqOn || !!growOn;
         return list.map((candle, index) => {
             const item = {
                 time: candle.time,
@@ -188,17 +260,34 @@
                 low: Number(candle.low),
                 close: Number(candle.close),
             };
-            if (!marked.has(index)) {
-                if (!enabled) {
+            const up = item.close >= item.open;
+            const inSeq = seq.has(index);
+            const inGrow = grow.has(index);
+            if (!inSeq && !inGrow) {
+                if (!borders) {
                     return item;
                 }
-                const plain = item.close >= item.open;
                 return {
                     ...item,
-                    borderColor: plain ? '#22c55e' : '#ef4444',
+                    borderColor: up ? '#22c55e' : '#ef4444',
                 };
             }
-            const up = item.close >= item.open;
+            if (inSeq && inGrow) {
+                return {
+                    ...item,
+                    color: up ? '#15803d' : '#b91c1c',
+                    borderColor: '#facc15',
+                    wickColor: '#fde68a',
+                };
+            }
+            if (inGrow) {
+                return {
+                    ...item,
+                    color: up ? '#a16207' : '#9a3412',
+                    borderColor: '#fef3c7',
+                    wickColor: up ? '#fde68a' : '#fed7aa',
+                };
+            }
             return {
                 ...item,
                 color: up ? '#15803d' : '#b91c1c',
@@ -445,6 +534,7 @@
         let maEnabled = false;
         let pcEnabled = false;
         let seqEnabled = false;
+        let growEnabled = false;
         let publishCandles = null;
         const dgPriceLines = [];
         let dgLinesMeta = [];
@@ -783,16 +873,25 @@
             applyPcData();
         };
 
-        const setSeqEnabled = (enabled) => {
-            seqEnabled = !!enabled;
+        const republishCandles = () => {
             series.applyOptions({
-                borderVisible: seqEnabled,
+                borderVisible: seqEnabled || growEnabled,
                 borderUpColor: '#22c55e',
                 borderDownColor: '#ef4444',
             });
             if (typeof publishCandles === 'function' && lastCandles.length > 0) {
-                publishCandles(paintSequenceCandles(lastCandles, seqEnabled), true);
+                publishCandles(paintChartCandles(lastCandles, seqEnabled, growEnabled), true);
             }
+        };
+
+        const setSeqEnabled = (enabled) => {
+            seqEnabled = !!enabled;
+            republishCandles();
+        };
+
+        const setGrowEnabled = (enabled) => {
+            growEnabled = !!enabled;
+            republishCandles();
         };
 
         const resize = () => {
@@ -817,6 +916,7 @@
             setMaEnabled,
             setPcEnabled,
             setSeqEnabled,
+            setGrowEnabled,
             setPublishCandles(fn) {
                 publishCandles = typeof fn === 'function' ? fn : null;
             },
@@ -1269,12 +1369,14 @@
             const maEnabled = readMaEnabled(label);
             const pcEnabled = readPcEnabled(label);
             const seqEnabled = readSeqEnabled(label);
+            const growEnabled = readGrowEnabled(label);
             entry.setPublishCandles((painted, replaceAll) => entry.view.setCandles(painted, replaceAll));
             entry.setMaEnabled(maEnabled);
             setMaLegendVisible(entry.container, maEnabled);
             entry.setPcEnabled(pcEnabled);
             setPcLegendVisible(entry.container, pcEnabled);
             entry.setSeqEnabled(seqEnabled);
+            entry.setGrowEnabled(growEnabled);
             charts.set(label, entry);
         });
 
@@ -1325,6 +1427,21 @@
             return readSeqEnabled(String(timeframe || ''));
         }
 
+        function setGrowEnabled(timeframe, enabled) {
+            const tf = String(timeframe || '');
+            const on = !!enabled;
+            writeGrowEnabled(tf, on);
+            const entry = charts.get(tf);
+            if (entry) {
+                entry.setGrowEnabled(on);
+            }
+            return on;
+        }
+
+        function isGrowEnabled(timeframe) {
+            return readGrowEnabled(String(timeframe || ''));
+        }
+
         async function load() {
             const response = await fetch(endpoint, { credentials: 'same-origin' });
             if (!response.ok) {
@@ -1344,8 +1461,8 @@
                 const candles = item.candles || [];
                 entry.setLastCandles(candles);
                 entry.view.setCandles(
-                    paintSequenceCandles(candles, isSeqEnabled(label)),
-                    isSeqEnabled(label)
+                    paintChartCandles(candles, isSeqEnabled(label), isGrowEnabled(label)),
+                    isSeqEnabled(label) || isGrowEnabled(label)
                 );
                 if (seqEl) {
                     const seq = item.sequence || {};
@@ -1415,6 +1532,8 @@
             isPcEnabled,
             setSeqEnabled,
             isSeqEnabled,
+            setGrowEnabled,
+            isGrowEnabled,
         };
     }
 
@@ -1430,6 +1549,8 @@
                 isPcEnabled: () => false,
                 setSeqEnabled: () => false,
                 isSeqEnabled: () => false,
+                setGrowEnabled: () => false,
+                isGrowEnabled: () => false,
             };
         }
         const entry = createChart(container);
@@ -1442,12 +1563,14 @@
         let maEnabled = readMaEnabled(timeframe);
         let pcEnabled = readPcEnabled(timeframe);
         let seqEnabled = readSeqEnabled(timeframe);
+        let growEnabled = readGrowEnabled(timeframe);
         entry.setPublishCandles((painted, replaceAll) => entry.view.setCandles(painted, replaceAll));
         entry.setMaEnabled(maEnabled);
         setMaLegendVisible(entry.container, maEnabled);
         entry.setPcEnabled(pcEnabled);
         setPcLegendVisible(entry.container, pcEnabled);
         entry.setSeqEnabled(seqEnabled);
+        entry.setGrowEnabled(growEnabled);
 
         async function load() {
             const response = await fetch(endpoint, { credentials: 'same-origin' });
@@ -1457,7 +1580,10 @@
             const payload = await response.json();
             const candles = payload.candles || [];
             entry.setLastCandles(candles);
-            entry.view.setCandles(paintSequenceCandles(candles, seqEnabled), seqEnabled);
+            entry.view.setCandles(
+                paintChartCandles(candles, seqEnabled, growEnabled),
+                seqEnabled || growEnabled
+            );
 
             const lastSignalEl = document.getElementById('chart-last-signal');
             if (lastSignalEl) {
@@ -1513,7 +1639,28 @@
             return seqEnabled;
         }
 
-        return { load, setMaEnabled, isMaEnabled, setPcEnabled, isPcEnabled, setSeqEnabled, isSeqEnabled };
+        function setGrowEnabled(enabled) {
+            growEnabled = !!enabled;
+            writeGrowEnabled(timeframe, growEnabled);
+            entry.setGrowEnabled(growEnabled);
+            return growEnabled;
+        }
+
+        function isGrowEnabled() {
+            return growEnabled;
+        }
+
+        return {
+            load,
+            setMaEnabled,
+            isMaEnabled,
+            setPcEnabled,
+            isPcEnabled,
+            setSeqEnabled,
+            isSeqEnabled,
+            setGrowEnabled,
+            isGrowEnabled,
+        };
     }
 
     function createQuotesAutoRefresh({

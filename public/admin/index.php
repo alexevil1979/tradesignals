@@ -25,7 +25,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Dashboard — Bybit Grid Bot</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/admin/assets/css/admin.css" rel="stylesheet">
+    <link href="/admin/assets/css/admin.css?v=20260926-2" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <nav class="navbar navbar-expand-lg navbar-dark border-bottom border-secondary mb-4">
@@ -114,6 +114,10 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
                                     class="btn btn-outline-light btn-sm toggle-seq"
                                     data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"
                                     title="4 свечи подряд в одну сторону">4+</button>
+                            <button type="button"
+                                    class="btn btn-sm btn-grow toggle-grow"
+                                    data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"
+                                    title="3 свечи подряд, каждая больше предыдущей">3></button>
                             <small class="text-secondary chart-meta" data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>">загрузка…</small>
                         </span>
                     </div>
@@ -126,7 +130,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260926-1"></script>
+<script src="/admin/assets/js/charts.js?v=20260926-2"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const dashboard = window.TradeSignalsCharts.createDashboard({
@@ -203,6 +207,28 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
                 const label = btn.dataset.label;
                 dashboard.setSeqEnabled(label, !dashboard.isSeqEnabled(label));
                 syncSeqButton(btn);
+            });
+        });
+
+        const syncGrowButton = (btn) => {
+            const label = btn.dataset.label;
+            if (!label) {
+                return;
+            }
+            const on = dashboard.isGrowEnabled(label);
+            btn.classList.toggle('is-on', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.title = on
+                ? 'Скрыть тройки с растущим телом'
+                : 'Подсветить 3 свечи подряд в одну сторону, каждая с телом больше предыдущей';
+        };
+
+        document.querySelectorAll('.toggle-grow').forEach((btn) => {
+            syncGrowButton(btn);
+            btn.addEventListener('click', () => {
+                const label = btn.dataset.label;
+                dashboard.setGrowEnabled(label, !dashboard.isGrowEnabled(label));
+                syncGrowButton(btn);
             });
         });
 

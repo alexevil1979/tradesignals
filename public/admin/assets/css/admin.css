@@ -207,3 +207,22 @@
 .level-grid-toggle:hover {
     color: #6ea8fe !important;
 }
+
+.btn-grow {
+    --bs-btn-color: #facc15;
+    --bs-btn-border-color: #facc15;
+    --bs-btn-hover-color: #111827;
+    --bs-btn-hover-bg: #facc15;
+    --bs-btn-hover-border-color: #facc15;
+    --bs-btn-active-color: #111827;
+    --bs-btn-active-bg: #facc15;
+    --bs-btn-active-border-color: #facc15;
+    color: #facc15;
+    border-color: #facc15;
+}
+
+.btn-grow.is-on {
+    color: #111827;
+    background-color: #facc15;
+    border-color: #facc15;
+}
