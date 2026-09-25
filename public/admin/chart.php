@@ -77,6 +77,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
             <span class="d-flex align-items-center gap-2">
                 <button type="button" class="btn btn-outline-warning btn-sm" id="toggle-ma" title="SMA 28">МА</button>
                 <button type="button" class="btn btn-outline-info btn-sm" id="toggle-pc" title="Price Channel + Trend Flip">PC</button>
+                <button type="button" class="btn btn-outline-light btn-sm" id="toggle-seq" title="4 свечи подряд в одну сторону">4+</button>
                 <button type="button" class="btn btn-outline-success btn-sm" id="repair-gaps" title="Проверить и догрузить пропущенные свечи">Догрузить гэпы</button>
                 <small class="text-secondary" id="chart-count">загрузка…</small>
                 <span class="badge text-bg-secondary" id="quotes-refresh-status">автообновление 60с</span>
@@ -88,7 +89,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260915-3"></script>
+<script src="/admin/assets/js/charts.js?v=20260926-1"></script>
 <script>
     document.addEventListener('DOMContentLoaded', async () => {
         const activeTf = <?= json_encode($active, JSON_UNESCAPED_UNICODE) ?>;
@@ -137,6 +138,26 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
         pcBtn?.addEventListener('click', () => {
             chart.setPcEnabled(!chart.isPcEnabled());
             syncPcButton();
+        });
+
+        const seqBtn = document.getElementById('toggle-seq');
+        const syncSeqButton = () => {
+            if (!seqBtn) {
+                return;
+            }
+            const on = chart.isSeqEnabled();
+            seqBtn.classList.toggle('btn-light', on);
+            seqBtn.classList.toggle('btn-outline-light', !on);
+            seqBtn.classList.toggle('text-dark', on);
+            seqBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            seqBtn.title = on
+                ? 'Скрыть серии из 4+ свечей подряд'
+                : 'Подсветить серии из 4+ свечей подряд в одну сторону';
+        };
+        syncSeqButton();
+        seqBtn?.addEventListener('click', () => {
+            chart.setSeqEnabled(!chart.isSeqEnabled());
+            syncSeqButton();
         });
 
         const updateCount = async () => {

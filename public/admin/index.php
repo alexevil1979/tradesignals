@@ -110,6 +110,10 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
                                     class="btn btn-outline-info btn-sm toggle-pc"
                                     data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"
                                     title="Price Channel + Trend Flip">PC</button>
+                            <button type="button"
+                                    class="btn btn-outline-light btn-sm toggle-seq"
+                                    data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>"
+                                    title="4 свечи подряд в одну сторону">4+</button>
                             <small class="text-secondary chart-meta" data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>">загрузка…</small>
                         </span>
                     </div>
@@ -122,7 +126,7 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
     </div>
 </main>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/admin/assets/js/charts.js?v=20260915-3"></script>
+<script src="/admin/assets/js/charts.js?v=20260926-1"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const dashboard = window.TradeSignalsCharts.createDashboard({
@@ -175,6 +179,30 @@ $chartNavHref = htmlspecialchars(ChartUiState::chartHref($intervals), ENT_QUOTES
                 const label = btn.dataset.label;
                 dashboard.setPcEnabled(label, !dashboard.isPcEnabled(label));
                 syncPcButton(btn);
+            });
+        });
+
+        const syncSeqButton = (btn) => {
+            const label = btn.dataset.label;
+            if (!label) {
+                return;
+            }
+            const on = dashboard.isSeqEnabled(label);
+            btn.classList.toggle('btn-light', on);
+            btn.classList.toggle('btn-outline-light', !on);
+            btn.classList.toggle('text-dark', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.title = on
+                ? 'Скрыть серии из 4+ свечей подряд'
+                : 'Подсветить серии из 4+ свечей подряд в одну сторону';
+        };
+
+        document.querySelectorAll('.toggle-seq').forEach((btn) => {
+            syncSeqButton(btn);
+            btn.addEventListener('click', () => {
+                const label = btn.dataset.label;
+                dashboard.setSeqEnabled(label, !dashboard.isSeqEnabled(label));
+                syncSeqButton(btn);
             });
         });
 

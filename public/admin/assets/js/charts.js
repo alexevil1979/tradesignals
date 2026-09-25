@@ -5,6 +5,8 @@
     const VIEW_STORAGE_KEY = 'tradesignals.chartView.v2';
     const MA_STORAGE_KEY = 'tradesignals.chartMa.v2';
     const PC_STORAGE_KEY = 'tradesignals.chartPc.v2';
+    const SEQ_STORAGE_KEY = 'tradesignals.chartSeq.v1';
+    const SEQ_MIN_BARS = 4;
     const TF_STORAGE_KEY = 'tradesignals.chartTf.v1';
     const TF_COOKIE = 'tradesignals_chart_tf';
     const MA_PERIODS = [
@@ -103,6 +105,107 @@
         const map = readIndicatorMap(PC_STORAGE_KEY);
         map[timeframe] = enabled ? '1' : '0';
         writeIndicatorMap(PC_STORAGE_KEY, map);
+    }
+
+    function readSeqEnabled(timeframe) {
+        if (!timeframe) {
+            return false;
+        }
+        const map = readIndicatorMap(SEQ_STORAGE_KEY);
+        return map[timeframe] === '1';
+    }
+
+    function writeSeqEnabled(timeframe, enabled) {
+        if (!timeframe) {
+            return;
+        }
+        const map = readIndicatorMap(SEQ_STORAGE_KEY);
+        map[timeframe] = enabled ? '1' : '0';
+        writeIndicatorMap(SEQ_STORAGE_KEY, map);
+    }
+
+    /**
+     * Серии из 4+ свечей подряд в одну сторону.
+     * Пустое тело (open == close) рвёт серию и само не входит в неё.
+     * Если серия длиннее 4 — выделяется целиком.
+     */
+    function sequenceRunIndices(candles, minBars = SEQ_MIN_BARS) {
+        const marked = [];
+        if (!Array.isArray(candles) || candles.length === 0) {
+            return marked;
+        }
+
+        const directionOf = (candle) => {
+            const open = Number(candle.open);
+            const close = Number(candle.close);
+            if (!Number.isFinite(open) || !Number.isFinite(close) || Math.abs(close - open) < 1e-8) {
+                return null;
+            }
+            return close > open ? 'up' : 'down';
+        };
+
+        let runStart = 0;
+        let runDir = null;
+        const flush = (endExclusive) => {
+            if (runDir !== null && endExclusive - runStart >= minBars) {
+                for (let i = runStart; i < endExclusive; i += 1) {
+                    marked.push(i);
+                }
+            }
+        };
+
+        for (let i = 0; i < candles.length; i += 1) {
+            const dir = directionOf(candles[i]);
+            if (dir === null) {
+                flush(i);
+                runDir = null;
+                runStart = i + 1;
+                continue;
+            }
+            if (runDir === null) {
+                runDir = dir;
+                runStart = i;
+                continue;
+            }
+            if (dir !== runDir) {
+                flush(i);
+                runDir = dir;
+                runStart = i;
+            }
+        }
+        flush(candles.length);
+        return marked;
+    }
+
+    function paintSequenceCandles(candles, enabled) {
+        const list = Array.isArray(candles) ? candles : [];
+        const marked = enabled ? new Set(sequenceRunIndices(list)) : new Set();
+        return list.map((candle, index) => {
+            const item = {
+                time: candle.time,
+                open: Number(candle.open),
+                high: Number(candle.high),
+                low: Number(candle.low),
+                close: Number(candle.close),
+            };
+            if (!marked.has(index)) {
+                if (!enabled) {
+                    return item;
+                }
+                const plain = item.close >= item.open;
+                return {
+                    ...item,
+                    borderColor: plain ? '#22c55e' : '#ef4444',
+                };
+            }
+            const up = item.close >= item.open;
+            return {
+                ...item,
+                color: up ? '#15803d' : '#b91c1c',
+                borderColor: '#f8fafc',
+                wickColor: up ? '#bbf7d0' : '#fecaca',
+            };
+        });
     }
 
     /** Простая скользящая средняя по close. */
@@ -341,6 +444,8 @@
         let lastCandles = [];
         let maEnabled = false;
         let pcEnabled = false;
+        let seqEnabled = false;
+        let publishCandles = null;
         const dgPriceLines = [];
         let dgLinesMeta = [];
         let dgOverlayState = null;
@@ -678,6 +783,18 @@
             applyPcData();
         };
 
+        const setSeqEnabled = (enabled) => {
+            seqEnabled = !!enabled;
+            series.applyOptions({
+                borderVisible: seqEnabled,
+                borderUpColor: '#22c55e',
+                borderDownColor: '#ef4444',
+            });
+            if (typeof publishCandles === 'function' && lastCandles.length > 0) {
+                publishCandles(paintSequenceCandles(lastCandles, seqEnabled), true);
+            }
+        };
+
         const resize = () => {
             chart.applyOptions({
                 width: container.clientWidth,
@@ -699,6 +816,10 @@
             container,
             setMaEnabled,
             setPcEnabled,
+            setSeqEnabled,
+            setPublishCandles(fn) {
+                publishCandles = typeof fn === 'function' ? fn : null;
+            },
             setDgOverlay,
             setLastCandles(candles) {
                 lastCandles = Array.isArray(candles) ? candles : [];
@@ -1010,20 +1131,32 @@
          * Единая точка обновления данных: лочим сохранение ДО setData/update,
          * восстанавливаем вид синхронно и ещё раз в rAF (LW иногда сбрасывает кадр позже).
          */
-        function setCandles(candles) {
+        function setCandles(candles, replaceAll = false) {
             lock();
 
             const preferred = state || loadPersistedView(viewKey);
             const prevCount = barCount;
             const nextCount = candles.length;
-            const chartCandles = candles.map((candle) => ({
-                time: candle.time,
-                open: candle.open,
-                high: candle.high,
-                low: candle.low,
-                close: candle.close,
-            }));
-            const usedIncremental = pushCandlesIncremental(series, prevCount, chartCandles);
+            const chartCandles = candles.map((candle) => {
+                const item = {
+                    time: candle.time,
+                    open: candle.open,
+                    high: candle.high,
+                    low: candle.low,
+                    close: candle.close,
+                };
+                if (candle.color) {
+                    item.color = candle.color;
+                }
+                if (candle.borderColor) {
+                    item.borderColor = candle.borderColor;
+                }
+                if (candle.wickColor) {
+                    item.wickColor = candle.wickColor;
+                }
+                return item;
+            });
+            const usedIncremental = !replaceAll && pushCandlesIncremental(series, prevCount, chartCandles);
 
             if (!usedIncremental) {
                 series.setData(chartCandles);
@@ -1135,10 +1268,13 @@
             );
             const maEnabled = readMaEnabled(label);
             const pcEnabled = readPcEnabled(label);
+            const seqEnabled = readSeqEnabled(label);
+            entry.setPublishCandles((painted, replaceAll) => entry.view.setCandles(painted, replaceAll));
             entry.setMaEnabled(maEnabled);
             setMaLegendVisible(entry.container, maEnabled);
             entry.setPcEnabled(pcEnabled);
             setPcLegendVisible(entry.container, pcEnabled);
+            entry.setSeqEnabled(seqEnabled);
             charts.set(label, entry);
         });
 
@@ -1174,6 +1310,21 @@
             return readPcEnabled(String(timeframe || ''));
         }
 
+        function setSeqEnabled(timeframe, enabled) {
+            const tf = String(timeframe || '');
+            const on = !!enabled;
+            writeSeqEnabled(tf, on);
+            const entry = charts.get(tf);
+            if (entry) {
+                entry.setSeqEnabled(on);
+            }
+            return on;
+        }
+
+        function isSeqEnabled(timeframe) {
+            return readSeqEnabled(String(timeframe || ''));
+        }
+
         async function load() {
             const response = await fetch(endpoint, { credentials: 'same-origin' });
             if (!response.ok) {
@@ -1191,8 +1342,11 @@
                     return;
                 }
                 const candles = item.candles || [];
-                entry.view.setCandles(candles);
                 entry.setLastCandles(candles);
+                entry.view.setCandles(
+                    paintSequenceCandles(candles, isSeqEnabled(label)),
+                    isSeqEnabled(label)
+                );
                 if (seqEl) {
                     const seq = item.sequence || {};
                     const seqLabel = seq.label || '—';
@@ -1253,7 +1407,15 @@
             }
         }
 
-        return { load, setMaEnabled, isMaEnabled, setPcEnabled, isPcEnabled };
+        return {
+            load,
+            setMaEnabled,
+            isMaEnabled,
+            setPcEnabled,
+            isPcEnabled,
+            setSeqEnabled,
+            isSeqEnabled,
+        };
     }
 
     function createSingleChart({ endpoint, containerId, viewKey, interval }) {
@@ -1266,6 +1428,8 @@
                 isMaEnabled: () => false,
                 setPcEnabled: () => false,
                 isPcEnabled: () => false,
+                setSeqEnabled: () => false,
+                isSeqEnabled: () => false,
             };
         }
         const entry = createChart(container);
@@ -1277,10 +1441,13 @@
         );
         let maEnabled = readMaEnabled(timeframe);
         let pcEnabled = readPcEnabled(timeframe);
+        let seqEnabled = readSeqEnabled(timeframe);
+        entry.setPublishCandles((painted, replaceAll) => entry.view.setCandles(painted, replaceAll));
         entry.setMaEnabled(maEnabled);
         setMaLegendVisible(entry.container, maEnabled);
         entry.setPcEnabled(pcEnabled);
         setPcLegendVisible(entry.container, pcEnabled);
+        entry.setSeqEnabled(seqEnabled);
 
         async function load() {
             const response = await fetch(endpoint, { credentials: 'same-origin' });
@@ -1289,8 +1456,8 @@
             }
             const payload = await response.json();
             const candles = payload.candles || [];
-            entry.view.setCandles(candles);
             entry.setLastCandles(candles);
+            entry.view.setCandles(paintSequenceCandles(candles, seqEnabled), seqEnabled);
 
             const lastSignalEl = document.getElementById('chart-last-signal');
             if (lastSignalEl) {
@@ -1335,7 +1502,18 @@
             return pcEnabled;
         }
 
-        return { load, setMaEnabled, isMaEnabled, setPcEnabled, isPcEnabled };
+        function setSeqEnabled(enabled) {
+            seqEnabled = !!enabled;
+            writeSeqEnabled(timeframe, seqEnabled);
+            entry.setSeqEnabled(seqEnabled);
+            return seqEnabled;
+        }
+
+        function isSeqEnabled() {
+            return seqEnabled;
+        }
+
+        return { load, setMaEnabled, isMaEnabled, setPcEnabled, isPcEnabled, setSeqEnabled, isSeqEnabled };
     }
 
     function createQuotesAutoRefresh({
